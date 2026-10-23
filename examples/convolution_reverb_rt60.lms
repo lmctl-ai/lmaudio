@@ -72,7 +72,7 @@ scene.rect(40.0, 45.0, 380.0, 220.0, "#f8fafc").set_attr("stroke", "#334155").se
 scene.circle(110.0, 180.0, 9.0, "#dc2626");
 scene.text(110.0, 205.0, 12.0, "source", "#b91c1c").set_attr("text-anchor", "middle");
 scene.circle(330.0, 150.0, 9.0, "#2563eb");
-scene.text(330.0, 175.0, 12.0, "listener", "#1d4ed8").set_attr("text-anchor", "middle");
+scene.text(352.0, 140.0, 12.0, "listener", "#1d4ed8").set_attr("text-anchor", "middle");
 # Direct path
 scene.arrow(119.0, 178.0, 320.0, 152.0, "#0f172a", 2.2);
 scene.text(205.0, 157.0, 11.0, "direct, 0 ms", "#0f172a");
@@ -83,7 +83,7 @@ scene.text(215.0, 70.0, 11.0, "top wall, +12 ms", "#b45309");
 # Reflection off the bottom wall (plan view)
 scene.line(110.0, 180.0, 240.0, 265.0, "#16a34a", 1.8).set_attr("stroke-dasharray", "5 3");
 scene.arrow(240.0, 265.0, 326.0, 159.0, "#16a34a", 1.8);
-scene.text(170.0, 252.0, 11.0, "bottom wall, +19 ms", "#15803d");
+scene.text(120.0, 252.0, 11.0, "bottom wall, +19 ms", "#15803d");
 # Reflection off the right wall
 scene.line(110.0, 180.0, 420.0, 190.0, "#7c3aed", 1.6).set_attr("stroke-dasharray", "5 3");
 scene.arrow(420.0, 190.0, 339.0, 154.0, "#7c3aed", 1.6);
