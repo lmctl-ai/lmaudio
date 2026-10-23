@@ -1,0 +1,123 @@
+# Loudness normalization for a podcast or streaming playlist (ITU-R BS.1770-4 / EBU R128).
+# Four clips are peak-normalized to -1 dBFS, the "loudest sample" rule: a voice, a drum loop, a
+# soft synth pad and a 997 Hz test tone. Their integrated loudness then still spans about
+# 12 LU, so a listener would ride the volume knob. Normalizing every clip to -16 LUFS (the
+# AES/Apple podcast target) instead makes them equally loud, and the peak check shows which ones
+# would need a limiter. The K-weighting curve is measured by playing sine tones through the
+# meter: BS.1770 says a 0 dBFS 997 Hz sine reads -3.01 LUFS, which is asserted.
+# Writes images/loudness_normalization_lufs.png and audio/loudness_normalization_lufs.wav.
+mkdir("build");
+mkdir("images");
+mkdir("audio");
+
+a = _dsl_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+let sr = 22050;
+let dur = 0.9;
+
+# 1. Voice-like clip: 130 Hz glottal sawtooth, vowel formants /a/ (730, 1090 Hz), syllable rhythm.
+let glottal = audio.saw(130.0, dur, 0.8, sr).biquad("peak", 730.0, 3.0, 14.0).biquad("peak", 1090.0, 4.0, 10.0).biquad("lowpass", 3000.0, 0.7);
+let syllables = audio.expr("pow(sin(3.14159265 * 4.5 * t), 2)", dur, sr);
+let voice = glottal.multiply(syllables).normalize(0.891);
+# 2. Drum loop from step patterns.
+let kick = audio.drum("kick", 55.0, 0.35, 0.6, 0.5, 0.9, sr);
+let snare = audio.drum("snare", 190.0, 0.3, 0.5, 0.6, 0.85, sr);
+let hat = audio.drum("hihat", 3500.0, 0.08, 0.2, 0.7, 0.7, sr);
+let drums = kick.pattern("X.......", 133.0, 4).mix(snare.pattern("....X...", 133.0, 4), 0.8).mix(hat.pattern("..o...o.", 133.0, 4), 0.5).slice(0.0, dur).normalize(0.891);
+# 3. Soft pad chord.
+let pad = audio.sequence("A3+C4+E4:2", 133.0, "pad", sr).slice(0.0, dur).fade(0.05, 0.1).normalize(0.891);
+# 4. Test tone.
+let tone = audio.sine(997.0, dur, 0.891, sr);
+
+let names = "voice,drums,pad,997 Hz tone";
+let l_voice = voice.lufs();
+let l_drums = drums.lufs();
+let l_pad = pad.lufs();
+let l_tone = tone.lufs();
+audio.print("after peak normalization to -1 dBFS: voice " + str(l_voice) + ", drums " + str(l_drums) + ", pad " + str(l_pad) + ", tone " + str(l_tone) + " LUFS");
+# A sine at -1 dBFS reads -3.01 - 1.0 = -4.01 LUFS (BS.1770 calibration point).
+audio.assert_close(l_tone, -4.01, 0.05);
+
+let target = -16.0;
+let v2 = voice.normalize_lufs(target);
+let d2 = drums.normalize_lufs(target);
+let p2 = pad.normalize_lufs(target);
+let t2 = tone.normalize_lufs(target);
+audio.assert_close(v2.lufs(), target, 0.001);
+audio.assert_close(d2.lufs(), target, 0.001);
+audio.assert_close(p2.lufs(), target, 0.001);
+audio.assert_close(t2.lufs(), target, 0.001);
+
+let rows = "# clip,lufs_peak_norm,lufs_after,peak_dbfs_peak_norm,peak_dbfs_after\n";
+rows = rows + "voice," + str(l_voice) + "," + str(v2.lufs()) + "," + str(audio.db(voice.peak())) + "," + str(audio.db(v2.peak())) + "\n";
+rows = rows + "drums," + str(l_drums) + "," + str(d2.lufs()) + "," + str(audio.db(drums.peak())) + "," + str(audio.db(d2.peak())) + "\n";
+rows = rows + "pad," + str(l_pad) + "," + str(p2.lufs()) + "," + str(audio.db(pad.peak())) + "," + str(audio.db(p2.peak())) + "\n";
+rows = rows + "997 Hz tone," + str(l_tone) + "," + str(t2.lufs()) + "," + str(audio.db(tone.peak())) + "," + str(audio.db(t2.peak())) + "\n";
+audio.save_text("build/lufs_table.csv", rows);
+audio.print("after -16 LUFS normalization the peaks are: voice " + str(audio.db(v2.peak())) + ", drums " + str(audio.db(d2.peak())) + ", pad " + str(audio.db(p2.peak())) + ", tone " + str(audio.db(t2.peak())) + " dBFS");
+
+# K-weighting measured through the meter: LUFS(0 dBFS sine) + 3.01 dB = filter gain at f.
+let krows = "# freq_hz,k_gain_db\n";
+for (i in range(0, 41)) {
+  let f = 20.0 * pow(10.0, float(i) * 0.07);
+  if (f < 10000.0) {
+    let g = audio.sine(f, 1.0, 1.0, 48000).lufs() + 3.0103;
+    krows = krows + str(f) + "," + str(g) + "\n";
+  }
+}
+audio.save_text("build/lufs_kweight.csv", krows);
+audio.assert_close(audio.sine(997.0, 1.0, 1.0, 48000).lufs(), -3.01, 0.01);
+
+# Waveforms of the playlist before and after.
+let gap = audio.silence(0.1, sr);
+let before = voice.concat(gap).concat(drums).concat(gap).concat(pad).concat(gap).concat(tone);
+let after = v2.concat(gap).concat(d2).concat(gap).concat(p2).concat(gap).concat(t2);
+before.save_csv("build/lufs_before.csv", 3000);
+after.save_csv("build/lufs_after.csv", 3000);
+# Audio: the playlist at -16 LUFS (what the listener hears: equal loudness).
+after.save_wav("audio/loudness_normalization_lufs.wav", 16);
+end _dsl_
+savedsl(a, "build/loudness_normalization_lufs.dslb");
+r1 = system ${dsl_cli(a)} --dsl build/loudness_normalization_lufs.dslb;
+for (l in lines(r1.stdout)) { if (!starts_with(l, "{")) { println(l); } }
+if (r1.code != 0) { println(r1.stderr); }
+assert(r1.code == 0);
+
+p = _dsl_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+plot.png("images/loudness_normalization_lufs.png", 980, 700);
+plot.cmd("set encoding utf8");
+plot.cmd("set datafile separator ','");
+plot.cmd("set multiplot layout 2,2 title 'Loudness normalization: equal peaks are not equal loudness (BS.1770 / EBU R128)' font ',14'");
+plot.cmd("set grid ytics lc rgb '#e2e8f0'");
+
+plot.cmd("set title 'Integrated loudness of each clip' font ',11'");
+plot.cmd("set style data histograms; set style histogram clustered gap 1.2; set style fill solid 0.85 noborder");
+plot.cmd("set ylabel 'loudness (LUFS)'; set yrange [-30:0]; set xtics nomirror font ',10'");
+plot.cmd("set key bottom right font ',9.5' opaque box lc rgb '#cbd5e1'");
+plot.cmd("set arrow 1 from graph 0, first -16 to graph 1, first -16 nohead dt 2 lw 1.5 lc rgb '#16a34a'");
+plot.cmd("plot 'build/lufs_table.csv' u 2:xtic(1) lc rgb '#f59e0b' t 'peak-normalized to -1 dBFS', '' u 3 lc rgb '#2563eb' t 'normalized to -16 LUFS'");
+
+plot.cmd("unset arrow 1");
+plot.cmd("set title 'Sample peak of each clip' font ',11'");
+plot.cmd("set ylabel 'peak (dBFS)'; set yrange [-24:6]");
+plot.cmd("set arrow 2 from graph 0, first 0 to graph 1, first 0 nohead lw 1.5 lc rgb '#dc2626'");
+plot.cmd("set label 2 '0 dBFS: full scale' at graph 0.02, first 1.3 font ',9' tc rgb '#dc2626'");
+plot.cmd("set key bottom left font ',9.5' opaque box lc rgb '#cbd5e1'");
+plot.cmd("plot 'build/lufs_table.csv' u 4:xtic(1) lc rgb '#f59e0b' t 'peak-normalized', '' u 5 lc rgb '#2563eb' t 'at -16 LUFS'");
+
+plot.cmd("unset arrow 2; unset label 2; set style data lines; unset xtics; set xtics auto");
+plot.cmd("set title 'K-weighting measured through the meter' font ',11'");
+plot.cmd("set logscale x; set xrange [20:10000]; set yrange [-20:6]; set xlabel 'frequency (Hz)'; set ylabel 'weighting (dB)'");
+plot.cmd("set label 3 '997 Hz: 0 dB' at 1100, -2.5 font ',9'");
+plot.cmd("plot 'build/lufs_kweight.csv' u 1:2 w lp pt 7 ps 0.5 lw 2 lc rgb '#7c3aed' notitle");
+
+plot.cmd("unset label 3; unset logscale x; set xrange [0:3.9]; set yrange [-2.2:2.2]; set ytics ('peak -1 dBFS' 1.1, '-16 LUFS' -1.1) font ',9'; set xlabel 'time (s): voice, drums, pad, tone'; set ylabel ''");
+plot.cmd("set title 'Playlist: equal peaks (top) vs equal loudness' font ',11'");
+plot.cmd("plot 'build/lufs_before.csv' u 1:($2+1.1) w l lw 0.8 lc rgb '#f59e0b' notitle, 'build/lufs_after.csv' u 1:($2-1.1) w l lw 0.8 lc rgb '#2563eb' notitle");
+plot.cmd("unset multiplot");
+plot.close();
+end _dsl_
+savedsl(p, "build/loudness_normalization_lufs-plot.dslb");
+r2 = system ${dsl_cli(p)} --dsl build/loudness_normalization_lufs-plot.dslb;
+if (r2.code != 0) { println(r2.stderr); }
+assert(r2.code == 0);
+println("wrote images/loudness_normalization_lufs.png and audio/loudness_normalization_lufs.wav");

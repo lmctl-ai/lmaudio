@@ -252,7 +252,10 @@ for img in $(grep -oE 'docs/images/[A-Za-z0-9_.-]+\.(png|gif)' README.md | sort 
   [ "$size" -le "$limit" ] || fail "$img is $size bytes (limit $limit)"
   nimg=$((nimg+1))
 done
-[ "$nimg" -ge 14 ] || fail "README gallery shows only $nimg images (expected >= 14)"
+[ "$nimg" -ge 22 ] || fail "README gallery shows only $nimg images (expected >= 22)"
+for src in examples/*.lms; do
+  grep -q "main/$src" README.md || fail "README has no autorun caption for $src"
+done
 nwav=0
 for wav in $(grep -oE 'docs/audio/[A-Za-z0-9_.-]+\.wav' README.md | sort -u); do
   [ -f "$wav" ] || fail "README references missing audio $wav"
@@ -291,11 +294,11 @@ if command -v lmplot >/dev/null 2>&1 || [ "${LMAUDIO_TEST_NETWORK:-}" = 1 ]; the
   # Determinism check: re-running every example's lmaudio bytecode produces byte-identical WAV and CSV files.
   for f in audio/*.wav build/*.csv; do [ -f "$f" ] && echo "$(sha "$f") $f"; done >"$WORK/before.txt"
   for dslb in build/*.dslb; do
-    case "$dslb" in *-draw.dslb) continue;; esac
+    case "$dslb" in *-*.dslb) continue;; esac  # lmplot/lmdraw programs (name-draw, name-plot, ...)
     "$HOST" --dsl "$dslb" >/dev/null 2>&1 || fail "rerun $dslb"
   done
   for f in audio/*.wav build/*.csv; do [ -f "$f" ] && echo "$(sha "$f") $f"; done >"$WORK/after.txt"
-  cmp -s "$WORK/before.txt" "$WORK/after.txt" || fail "WAV/CSV files differ on rerun"
+  cmp -s "$WORK/before.txt" "$WORK/after.txt" || { diff "$WORK/before.txt" "$WORK/after.txt" >&2; fail "WAV/CSV files differ on rerun"; }
   ok "$ng showcase examples run, write valid images/WAVs, and all $(wc -l <"$WORK/after.txt" | tr -d ' ') WAV/CSV files are byte-identical on rerun"
 else
   ok "showcase examples skipped (no lmplot on PATH, LMAUDIO_TEST_NETWORK unset)"

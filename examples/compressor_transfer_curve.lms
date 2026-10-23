@@ -1,0 +1,154 @@
+# Dynamic range compressor: the static transfer curve and the attack/release behaviour.
+# Buffer.compress(ratio, threshold_dB, attack_s, release_s, makeup_dB) is a feed-forward
+# compressor: a level detector follows the rectified signal with separate attack and release
+# times, a gain computer turns the level above the threshold into gain reduction
+# (1 - 1/ratio dB per dB) and a VCA applies it.
+# 1. Static curve: steady 1 kHz tones from -60 to 0 dBFS. Below the threshold the curve is the
+#    identity (asserted to 0.01 dB); above it the slope is 1/ratio (asserted). The detector
+#    reads a smoothed envelope of |x|, which sits about 1 dB under a sine's peak, so the knee
+#    arrives slightly later than the ideal line.
+# 2. Tone burst: -30 dBFS, then 0.5 s at -6 dBFS, then back. The output overshoots for the attack
+#    time before the gain clamps down, and recovers slowly over the release time ("pumping").
+# 3. Levelling: syllables that swing over 25 dB come out within about 10 dB; the audio plays the
+#    phrase dry, then compressed (both peak-normalized, so the soft syllables are what changes).
+# Writes images/compressor_transfer_curve.png and audio/compressor_transfer_curve.wav.
+mkdir("build");
+mkdir("build/rendered");
+mkdir("images");
+mkdir("audio");
+
+a = _dsl_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+let sr = 22050;
+let thr = -20.0;
+
+# 1. Static transfer curves for ratios 2, 4 and 10.
+let rows = "# in_dbfs,out_r2,out_r4,out_r10\n";
+for (i in range(0, 31)) {
+  let lv = -60.0 + 2.0 * float(i);
+  let x = audio.sine(1000.0, 0.8, pow(10.0, lv / 20.0), sr);
+  let o2 = audio.db(x.compress(2.0, thr, 0.005, 0.05, 0.0).slice(0.5, 0.8).peak());
+  let o4 = audio.db(x.compress(4.0, thr, 0.005, 0.05, 0.0).slice(0.5, 0.8).peak());
+  let o10 = audio.db(x.compress(10.0, thr, 0.005, 0.05, 0.0).slice(0.5, 0.8).peak());
+  rows = rows + str(lv) + "," + str(o2) + "," + str(o4) + "," + str(o10) + "\n";
+}
+audio.save_text("build/comp_static.csv", rows);
+fn out_level(lv: float, ratio: float) -> float {
+  let x = audio.sine(1000.0, 0.8, pow(10.0, lv / 20.0), 22050);
+  return audio.db(x.compress(ratio, -20.0, 0.005, 0.05, 0.0).slice(0.5, 0.8).peak());
+}
+# Below threshold: unity.
+audio.assert_close(out_level(-40.0, 4.0), -40.0, 0.01);
+# Above threshold: 10 dB more input gives 10/ratio dB more output.
+audio.assert_close(out_level(-2.0, 4.0) - out_level(-12.0, 4.0), 10.0 / 4.0, 0.05);
+audio.assert_close(out_level(-2.0, 10.0) - out_level(-12.0, 10.0), 10.0 / 10.0, 0.05);
+audio.print("4:1 at -20 dBFS: a 0 dBFS sine comes out at " + str(out_level(0.0, 4.0)) + " dBFS (ideal -15.0)");
+
+# 2. Tone burst through 4:1, attack 20 ms, release 200 ms.
+let quiet = audio.sine(1000.0, 0.3, pow(10.0, -30.0 / 20.0), sr);
+let loud = audio.sine(1000.0, 0.5, pow(10.0, -6.0 / 20.0), sr);
+let quiet2 = audio.sine(1000.0, 0.8, pow(10.0, -30.0 / 20.0), sr);
+let burst = quiet.concat(loud).concat(quiet2);
+let squashed = burst.compress(4.0, thr, 0.02, 0.2, 0.0);
+let env = "# t,in_db,out_db\n";
+for (i in range(0, 320)) {
+  let t0 = float(i) * 0.005;
+  env = env + str(t0 + 0.0025) + "," + str(audio.db(burst.slice(t0, t0 + 0.005).peak())) + "," + str(audio.db(squashed.slice(t0, t0 + 0.005).peak())) + "\n";
+}
+audio.save_text("build/comp_burst.csv", env);
+
+# 3. Levelling a phrase whose syllables swing from -32 to -7 dBFS (a singer who moves away from
+#    the microphone): 4:1 above -30 dBFS with 12 dB makeup narrows the spread of syllable levels.
+let buzz = audio.saw(150.0, 0.45, 0.8, sr).biquad("peak", 730.0, 3.0, 12.0).biquad("lowpass", 2500.0, 0.7);
+let syl = buzz.multiply(audio.expr("pow(sin(3.14159265 * t / 0.45), 2)", 0.45, sr));
+let phrase = syl.gain(0.03).concat(syl.gain(0.5)).concat(syl.gain(0.08)).concat(syl.gain(0.6));
+let level = phrase.compress(4.0, -30.0, 0.005, 0.1, 12.0);
+fn seg_db(b: Buffer, k: int) -> float {
+  return audio.db(b.slice(float(k) * 0.45 + 0.1, float(k) * 0.45 + 0.35).rms());
+}
+let lo_in = min(min(seg_db(phrase, 0), seg_db(phrase, 1)), min(seg_db(phrase, 2), seg_db(phrase, 3)));
+let hi_in = max(max(seg_db(phrase, 0), seg_db(phrase, 1)), max(seg_db(phrase, 2), seg_db(phrase, 3)));
+let lo_out = min(min(seg_db(level, 0), seg_db(level, 1)), min(seg_db(level, 2), seg_db(level, 3)));
+let hi_out = max(max(seg_db(level, 0), seg_db(level, 1)), max(seg_db(level, 2), seg_db(level, 3)));
+audio.print("syllable level spread: " + str(hi_in - lo_in) + " dB dry, " + str(hi_out - lo_out) + " dB after 4:1");
+audio.assert_close(min(hi_out - lo_out, 0.5 * (hi_in - lo_in)), hi_out - lo_out, 0.0);
+phrase.save_csv("build/comp_phrase_in.csv", 2500);
+level.save_csv("build/comp_phrase_out.csv", 2500);
+phrase.normalize(0.9).concat(audio.silence(0.25, sr)).concat(level.normalize(0.9)).save_wav("audio/compressor_transfer_curve.wav", 16);
+end _dsl_
+savedsl(a, "build/compressor_transfer_curve.dslb");
+r1 = system ${dsl_cli(a)} --dsl build/compressor_transfer_curve.dslb;
+for (l in lines(r1.stdout)) { if (!starts_with(l, "{")) { println(l); } }
+if (r1.code != 0) { println(r1.stderr); }
+assert(r1.code == 0);
+
+d = _dsl_ cli="lmdraw" install="github:lmctl-ai/lmdraw@latest";
+fn box(x: float, y: float, w: float, h: float, fill: string, stroke: string, t1: string, t2: string) -> int {
+  scene.rect(x, y, w, h, fill).set_attr("stroke", stroke);
+  scene.text(x + w / 2.0, y + h / 2.0 - 2.0, 13.0, t1, "#0f172a").set_attr("text-anchor", "middle");
+  scene.text(x + w / 2.0, y + h / 2.0 + 14.0, 11.0, t2, "#334155").set_attr("text-anchor", "middle");
+  return 0;
+}
+scene.canvas(470, 290, "#ffffff");
+scene.text(235.0, 24.0, 15.0, "Feed-forward compressor", "#0f172a").set_attr("text-anchor", "middle");
+scene.text(20.0, 76.0, 13.0, "in", "#0f172a");
+scene.arrow(42.0, 72.0, 380.0, 72.0, "#334155", 2.0);
+scene.circle(394.0, 72.0, 14.0, "#ffffff").set_attr("stroke", "#334155");
+scene.text(394.0, 77.0, 15.0, "×", "#334155").set_attr("text-anchor", "middle");
+scene.arrow(408.0, 72.0, 446.0, 72.0, "#334155", 2.0);
+scene.text(436.0, 98.0, 13.0, "out", "#0f172a");
+scene.line(80.0, 72.0, 80.0, 140.0, "#334155", 1.6);
+scene.arrow(80.0, 140.0, 80.0, 150.0, "#334155", 1.6);
+let z = box(20.0, 150.0, 120.0, 56.0, "#fef3c7", "#b45309", "level detector", "|x|, attack / release");
+scene.arrow(140.0, 178.0, 168.0, 178.0, "#334155", 1.8);
+z = box(168.0, 150.0, 130.0, 56.0, "#dbeafe", "#1d4ed8", "gain computer", "threshold T, ratio R");
+scene.arrow(298.0, 178.0, 324.0, 178.0, "#334155", 1.8);
+z = box(324.0, 150.0, 120.0, 56.0, "#dcfce7", "#15803d", "dB to linear", "+ makeup gain");
+scene.line(394.0, 150.0, 394.0, 96.0, "#334155", 1.6);
+scene.arrow(394.0, 96.0, 394.0, 87.0, "#334155", 1.6);
+scene.text(235.0, 240.0, 12.0, "above T:  out = T + (in - T) / R", "#1e3a8a").set_attr("text-anchor", "middle");
+scene.text(235.0, 262.0, 12.0, "below T:  out = in", "#1e3a8a").set_attr("text-anchor", "middle");
+scene.render_png("build/rendered/comp_flow.png", 470, 290, 2);
+end _dsl_
+savedsl(d, "build/compressor_transfer_curve-diagram.dslb");
+r2 = system ${dsl_cli(d)} --dsl build/compressor_transfer_curve-diagram.dslb;
+if (r2.code != 0) { println(r2.stderr); }
+assert(r2.code == 0);
+
+p = _dsl_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+plot.png("images/compressor_transfer_curve.png", 980, 720);
+plot.cmd("set encoding utf8");
+plot.cmd("set datafile separator ','");
+plot.cmd("set multiplot");
+plot.cmd("set label 99 'Compressor: static transfer curve and attack/release (threshold -20 dBFS)' at screen 0.5, 0.97 center font ',14'");
+plot.cmd("set pixmap 1 'build/rendered/comp_flow.png' at screen 0.02, 0.47 width screen 0.46");
+
+plot.script("set lmargin at screen 0.58\nset rmargin at screen 0.97\nset tmargin at screen 0.90\nset bmargin at screen 0.54");
+plot.cmd("set title 'Static curve: measured (points) vs ideal (lines)' font ',11'");
+plot.cmd("set xlabel 'input peak (dBFS)'; set ylabel 'output peak (dBFS)'");
+plot.cmd("set xrange [-60:0]; set yrange [-60:0]; set size ratio -1; set grid lc rgb '#e2e8f0'");
+plot.cmd("set key bottom right font ',9' opaque box lc rgb '#cbd5e1'");
+plot.cmd("f(x, r) = x < -20 ? x : -20 + (x + 20) / r");
+plot.cmd("plot x w l dt 3 lc rgb '#94a3b8' t '1:1', f(x,2) w l lw 1.5 lc rgb '#f59e0b' notitle, f(x,4) w l lw 1.5 lc rgb '#dc2626' notitle, f(x,10) w l lw 1.5 lc rgb '#7c3aed' notitle, 'build/comp_static.csv' u 1:2 w p pt 7 ps 0.7 lc rgb '#f59e0b' t '2:1', '' u 1:3 w p pt 7 ps 0.7 lc rgb '#dc2626' t '4:1', '' u 1:4 w p pt 7 ps 0.7 lc rgb '#7c3aed' t '10:1'");
+
+plot.cmd("unset pixmap 1; set size noratio");
+plot.script("set lmargin at screen 0.08\nset rmargin at screen 0.50\nset tmargin at screen 0.40\nset bmargin at screen 0.09");
+plot.cmd("set title 'Tone burst -30 → -6 → -30 dBFS, 4:1, attack 20 ms, release 200 ms' font ',10.5'");
+plot.cmd("set xlabel 'time (s)'; set ylabel 'level (dBFS, 5 ms peak)'");
+plot.cmd("set xrange [0:1.6]; set yrange [-54:0]; set ytics 6");
+plot.cmd("set key at graph 0.98, 0.98 right top font ',9' opaque box lc rgb '#cbd5e1'");
+plot.cmd("set label 1 'attack overshoot' at 0.33, -3 font ',9.5' tc rgb '#dc2626'");
+plot.cmd("set label 2 'release: slow recovery' at 0.86, -47 font ',9.5' tc rgb '#dc2626'");
+plot.cmd("plot 'build/comp_burst.csv' u 1:2 w l lw 2 lc rgb '#94a3b8' t 'input', '' u 1:3 w l lw 2.2 lc rgb '#dc2626' t 'output', -20 w l dt 2 lc rgb '#475569' t 'threshold'");
+plot.cmd("unset label 1; unset label 2");
+plot.script("set lmargin at screen 0.62\nset rmargin at screen 0.97\nset tmargin at screen 0.40\nset bmargin at screen 0.09");
+plot.cmd("set title 'Levelling a phrase: dry (top) vs 4:1 + 12 dB makeup' font ',10.5'");
+plot.cmd("set xlabel 'time (s)'; set ylabel ''; set xrange [0:1.8]; set yrange [-2.3:2.3]; set ytics ('dry' 1.15, 'compressed' -1.15)");
+plot.cmd("plot 'build/comp_phrase_in.csv' u 1:($2*1.3+1.15) w l lw 0.8 lc rgb '#94a3b8' notitle, 'build/comp_phrase_out.csv' u 1:($2*1.3-1.15) w l lw 0.8 lc rgb '#dc2626' notitle");
+plot.cmd("unset multiplot");
+plot.close();
+end _dsl_
+savedsl(p, "build/compressor_transfer_curve-plot.dslb");
+r3 = system ${dsl_cli(p)} --dsl build/compressor_transfer_curve-plot.dslb;
+if (r3.code != 0) { println(r3.stderr); }
+assert(r3.code == 0);
+println("wrote images/compressor_transfer_curve.png and audio/compressor_transfer_curve.wav");

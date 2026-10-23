@@ -39,6 +39,7 @@ struct Spectrum {
   double mag_at_freq(double freq_hz) const;
   int64_t peak_bin() const;
   double peak_freq() const;
+  double peak_freq_in(double fmin, double fmax) const;
   double peak_mag() const;
   double centroid() const;
   double parseval_energy() const;
@@ -171,6 +172,7 @@ Buffer apply_normalize_lufs(const Buffer &buf, double target_lufs);
 Buffer compute_schroeder_db(const Buffer &buf, int64_t ch);
 double compute_lufs(const Buffer &buf);
 double compute_rt60(const Buffer &buf, int64_t ch);
+void save_text(const std::string &path, const std::string &text, bool dry_run);
 void save_pitch_track_csv(const Buffer &buf, const std::string &path, double hop_sec, double win_sec, double fmin,
                           double fmax, bool dry_run);
 

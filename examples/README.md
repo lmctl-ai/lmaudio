@@ -1,26 +1,33 @@
-# lmaudio Examples
+# lmaudio examples
 
-Every example in `examples/` is self-executing: running it via `lmctl autorun <url>` or `lmscript examples/<name>.lms` compiles and executes the `lmaudio` synthesis/analysis block, writes the playable `.wav` file to `audio/<name>.wav`, and invokes `lmplot` to render the companion visualization into `images/<name>.png` (or `.gif`).
+Each example synthesizes its own input, asserts a known answer, writes `audio/<name>.wav` and draws `images/<name>.png` (`.gif` for the animation) with lmplot (and lmdraw for diagrams) in the current directory. Run one from an empty directory:
 
-| Example | Description | Run Command |
+| Example | What it shows | Run |
 |---|---|---|
-| `polyblep_harmonics.lms` | Band-limited PolyBLEP sine, triangle, square, and sawtooth waveforms and Fourier harmonic spectra at 440 Hz | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/polyblep_harmonics.lms` |
-| `karplus_strong_harp.lms` | Karplus-Strong plucked string physical model, damping comparison, and Celtic harp arpeggio STFT spectrogram | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/karplus_strong_harp.lms` |
-| `fm_bell_spectrum.lms` | Chowning 2-operator FM synthesis Bessel sideband evolution and tubular bell / brass synthesis | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/fm_bell_spectrum.lms` |
-| `synth_lead_melody.lms` | Synthwave lead melody, arpeggiated Moog bassline, and chord progression from `audio.sequence` note strings | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/synth_lead_melody.lms` |
-| `biquad_filter_bank.lms` | RBJ Audio-EQ-Cookbook biquad filter bank analytical Bode magnitude/phase curves and filtered chord showcase | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/biquad_filter_bank.lms` |
-| `eq_before_after.lms` | 4-band parametric mastering EQ before vs after STFT spectrograms, transfer curves, and FFT spectrum | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/eq_before_after.lms` |
-| `moog_ladder_sweep.lms` | Huovilainen 24 dB/oct nonlinear Moog ladder filter resonant cutoff sweep spectrogram and spectral snapshots | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/moog_ladder_sweep.lms` |
-| `chirp_spectrogram.lms` | Linear vs exponential (octave-rate) swept-sine chirp STFT spectrograms and ridge frequency tracking | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/chirp_spectrogram.lms` |
-| `analog_drum_kit.lms` | 808 analog bass drum, snare, and metallic hi-hat transients, spectral envelopes, and 2-bar breakbeat groove | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/analog_drum_kit.lms` |
-| `reverb_impulse_response.lms` | Studio 8-line Hadamard FDN reverb impulse response, RT60 log-decay slopes, and early vs late spectra | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/reverb_impulse_response.lms` |
-| `vocal_pitch_tracking.lms` | YIN fundamental pitch tracking of a sung vibrato formant chirp and melody with unvoiced silence gaps | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/vocal_pitch_tracking.lms` |
-| `loudness_and_resampling.lms` | Peak vs RMS loudness normalization and Kaiser-windowed sinc sample-rate conversion quality | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/loudness_and_resampling.lms` |
-| `reverb_and_wavefolder.lms` | West-Coast Buchla wavefolding harmonic distortion and studio FDN reverb | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/reverb_and_wavefolder.lms` |
-| `harmonic_morph_anim.lms` | 24-frame animated GIF (`ffmpeg`) of simultaneous wavefolding and ladder filter cutoff morphing | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/harmonic_morph_anim.lms` |
+| [`synthesis_methods_compared.lms`](synthesis_methods_compared.lms) | Three roads to one note: subtractive, additive, FM | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/synthesis_methods_compared.lms` |
+| [`polyblep_harmonics.lms`](polyblep_harmonics.lms) | Band-limited PolyBLEP oscillators | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/polyblep_harmonics.lms` |
+| [`fm_bell_spectrum.lms`](fm_bell_spectrum.lms) | FM sidebands follow Bessel functions | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/fm_bell_spectrum.lms` |
+| [`synth_lead_melody.lms`](synth_lead_melody.lms) | Melody, bassline and chords from note strings | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/synth_lead_melody.lms` |
+| [`granular_texture.lms`](granular_texture.lms) | Granular time-stretch | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/granular_texture.lms` |
+| [`harmonic_morph_anim.lms`](harmonic_morph_anim.lms) | Animated wavefolding and ladder-filter morph | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/harmonic_morph_anim.lms` |
+| [`karplus_strong_tuning.lms`](karplus_strong_tuning.lms) | Karplus-Strong string: an allpass fixes the tuning | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/karplus_strong_tuning.lms` |
+| [`xylophone_bar_modes.lms`](xylophone_bar_modes.lms) | Struck bars: the supports set the overtones | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/xylophone_bar_modes.lms` |
+| [`karplus_strong_harp.lms`](karplus_strong_harp.lms) | Plucked-string harp | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/karplus_strong_harp.lms` |
+| [`drum_machine_pattern.lms`](drum_machine_pattern.lms) | A drum machine from text | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/drum_machine_pattern.lms` |
+| [`analog_drum_kit.lms`](analog_drum_kit.lms) | 808 drum voices | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/analog_drum_kit.lms` |
+| [`biquad_filter_bank.lms`](biquad_filter_bank.lms) | RBJ biquad filter bank | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/biquad_filter_bank.lms` |
+| [`eq_before_after.lms`](eq_before_after.lms) | Four-band mastering EQ, before and after | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/eq_before_after.lms` |
+| [`moog_ladder_sweep.lms`](moog_ladder_sweep.lms) | Moog ladder filter sweep | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/moog_ladder_sweep.lms` |
+| [`compressor_transfer_curve.lms`](compressor_transfer_curve.lms) | Compressor: transfer curve and attack/release | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/compressor_transfer_curve.lms` |
+| [`reverb_and_wavefolder.lms`](reverb_and_wavefolder.lms) | Wavefolding into a reverb | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/reverb_and_wavefolder.lms` |
+| [`reverb_impulse_response.lms`](reverb_impulse_response.lms) | Feedback-delay-network reverb, measured | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/reverb_impulse_response.lms` |
+| [`loudness_normalization_lufs.lms`](loudness_normalization_lufs.lms) | Loudness normalization (LUFS) | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/loudness_normalization_lufs.lms` |
+| [`sample_rate_conversion_quality.lms`](sample_rate_conversion_quality.lms) | Sample-rate conversion without aliasing | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/sample_rate_conversion_quality.lms` |
+| [`vocal_pitch_tracking.lms`](vocal_pitch_tracking.lms) | YIN pitch tracking of a sung glide | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/vocal_pitch_tracking.lms` |
+| [`chirp_spectrogram.lms`](chirp_spectrogram.lms) | Linear vs exponential chirps | `lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/chirp_spectrogram.lms` |
 
-To regenerate all `docs/images/*` and `docs/audio/*` assets at once:
+Pictures, sounds and longer descriptions: the [README gallery](../README.md#gallery). To regenerate every `docs/images/*` and `docs/audio/*` file:
 
 ```sh
-./examples/render-all.sh
+examples/render-all.sh
 ```

@@ -50,10 +50,11 @@ plot.cmd("set datafile separator ','");
 plot.cmd("set multiplot layout 2,1 title 'Synth Melody, Arpeggiated Bassline and Chords from Note Strings (128 BPM, Am-G-F-E7)' font ',13'");
 plot.cmd("set border 3; set tics nomirror; set grid lc rgb '#e0e0e0'");
 
-plot.cmd("set title 'Voice Envelopes: Lead Melody (Saw + Chorus), Moog Bassline (Square + LP24), Full Mix' font ',11'; set xlabel 'Time (s)'; set ylabel 'Amplitude'");
-plot.cmd("set xrange [0:3.75]; set yrange [-1.05:1.05]; set key top right box opaque");
-plot.cmd("plot 'build/synth_melody_wave.csv' u 1:2 w l lw 1.4 lc rgb '#1f77b4' t 'Full Arrangement Mix', 'build/synth_lead_only.csv' u 1:2 w l lw 1.2 lc rgb '#d62728' t 'Lead Melody (A4-C5-E5...)', 'build/synth_bass_only.csv' u 1:2 w l lw 1.1 lc rgb '#2ca02c' t 'Octave Bassline'");
+plot.cmd("set title 'Voices separately and the full mix (offset for clarity)' font ',11'; set xlabel 'Time (s)'; set ylabel ''");
+plot.cmd("set xrange [0:3.75]; set yrange [-3.4:3.4]; set ytics ('mix' 2.2, 'lead' 0, 'bass' -2.2); unset key");
+plot.cmd("plot 'build/synth_melody_wave.csv' u 1:($2+2.2) w l lw 0.8 lc rgb '#1f77b4' notitle, 'build/synth_lead_only.csv' u 1:2 w l lw 0.8 lc rgb '#d62728' notitle, 'build/synth_bass_only.csv' u 1:($2-2.2) w l lw 0.8 lc rgb '#2ca02c' notitle");
 
+plot.cmd("set ytics auto");
 plot.cmd("set title 'STFT Spectrogram of Note-String Arrangement (Fundamentals + Overtones)' font ',11'; set xlabel 'Time (s)'; set ylabel 'Frequency (Hz)'");
 plot.cmd("set xrange [0:3.75]; set yrange [0:4000]; set cbrange [-72:0]; set cblabel 'dB'");
 plot.cmd("set pm3d map; set palette defined (0 '#081d58', 0.25 '#225ea8', 0.5 '#41b6c4', 0.75 '#fed976', 1 '#bd0026')");

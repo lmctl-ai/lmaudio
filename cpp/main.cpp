@@ -197,6 +197,19 @@ void register_host(dslvm::Registry &r, Host &h) {
     std::cout.flush();
     return Value::none();
   });
+  method(r, "Audio", "cents", {"float", "float"}, "float", [&](void *, Args &a) {
+    if (!(a[0].f > 0.0) || !(a[1].f > 0.0) || !std::isfinite(a[0].f) || !std::isfinite(a[1].f))
+      throw dslvm::Error("Audio.cents: both frequencies must be finite and > 0");
+    return Value::real(1200.0 * std::log2(a[0].f / a[1].f));
+  });
+  method(r, "Audio", "db", {"float"}, "float", [&](void *, Args &a) {
+    if (!std::isfinite(a[0].f)) throw dslvm::Error("Audio.db: value must be finite");
+    return Value::real(20.0 * std::log10(std::max(std::abs(a[0].f), 1e-15)));
+  });
+  method(r, "Audio", "save_text", {"string", "string"}, "void", [&](void *, Args &a) {
+    lmaudio::save_text(a[0].s, a[1].s, h.dry_run);
+    return Value::none();
+  });
   method(r, "Audio", "karplus", {"float", "float", "float", "float", "int", "int"}, "Buffer", [&](void *, Args &a) {
     return h.buf(lmaudio::make_karplus(a[0].f, a[1].f, a[2].f, a[3].f, a[4].i, a[5].i));
   });
@@ -440,6 +453,8 @@ void register_host(dslvm::Registry &r, Host &h) {
          [&](void *s, Args &a) { return Value::real(S(s).mag_at_freq(a[0].f)); });
   method(r, "Spectrum", "peak_bin", {}, "int",
          [&](void *s, Args &) { return Value::integer(S(s).peak_bin()); });
+  method(r, "Spectrum", "peak_freq_in", {"float", "float"}, "float",
+         [&](void *s, Args &a) { return Value::real(S(s).peak_freq_in(a[0].f, a[1].f)); });
   method(r, "Spectrum", "peak_freq", {}, "float",
          [&](void *s, Args &) { return Value::real(S(s).peak_freq()); });
   method(r, "Spectrum", "peak_mag", {}, "float",

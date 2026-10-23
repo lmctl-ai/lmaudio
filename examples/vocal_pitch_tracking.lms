@@ -36,30 +36,21 @@ audio.assert_close(vocal.slice(1.45, 1.60).pitch(80.0, 800.0), 0.0, 0.001);
 audio.assert_close(vocal.slice(0.42, 0.58).pitch(80.0, 800.0), 220.0 + 110.0 * 0.5, 12.0);
 audio.assert_close(vocal.slice(1.85, 2.25).pitch(80.0, 800.0), 330.0, 8.0);
 
-# Sample the YIN pitch contour every 50 ms across the 2.50 s recording into a 1-sample-per-hop Buffer and export as CSV
-let dt = 0.05;
-let one_samp = 1.0 / 8000.0;
-let pitch_buf = audio.impulse(one_samp, 0.0, vocal.slice(0.0, 0.09).pitch(80.0, 800.0) / 500.0, 8000);
-let i = 1;
-while (i < 46) {
-  let t0 = float(i) * dt;
-  let f0 = vocal.slice(t0, t0 + 0.09).pitch(80.0, 800.0);
-  pitch_buf = pitch_buf.concat(audio.impulse(one_samp, 0.0, f0 / 500.0, 8000));
-  i = i + 1;
-}
-pitch_buf.save_csv("build/vocal_yin_raw.csv", 200);
+# Frame-by-frame YIN pitch track: 60 ms windows every 20 ms (t, f0 Hz, level dB; f0 = 0 when unvoiced).
+vocal.pitch_track_csv("build/vocal_track.csv", 0.02, 0.06, 80.0, 800.0);
 
 let sg = vocal.spectrogram(512, 128, "hann", 2400.0);
 sg.save_csv("build/vocal_sgram.csv", -75.0);
 end _dsl_
 savedsl(a, "build/vocal_pitch_tracking.dslb");
 r1 = system ${dsl_cli(a)} --dsl build/vocal_pitch_tracking.dslb;
+if (r1.code != 0) { println(r1.stderr); }
 assert(r1.code == 0);
 
 draw = _dsl_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
 plot.png("images/vocal_pitch_tracking.png", 980, 660);
 plot.cmd("set datafile separator ','");
-plot.cmd("set multiplot layout 2,1 title 'YIN Fundamental Pitch Tracking of a Sung Vibrato Formant Glide and Breath Gap' font ',13'");
+plot.cmd("set multiplot layout 2,1 title 'YIN pitch tracking of a sung vibrato glide with a breath gap' font ',13'");
 plot.cmd("set border 3; set tics nomirror; set grid lc rgb '#e0e0e0'");
 
 plot.cmd("set title 'Formant-Filtered Sung Vibrato Spectrogram (F0 + Harmonics F1/F2)'; set xlabel 'Time (s)'; set ylabel 'Frequency (Hz)'");
@@ -68,9 +59,11 @@ plot.cmd("set pm3d map; set palette defined (0 '#081d58', 0.25 '#225ea8', 0.5 '#
 plot.cmd("splot 'build/vocal_sgram.csv' u 1:2:3 notitle");
 
 plot.cmd("unset pm3d");
-plot.cmd("set title 'YIN Pitch Trajectory f0(t): Vibrato Chirp (220->374 Hz), Unvoiced Breath (0 Hz), Held E4 (330 Hz)'; set xlabel 'Time (s)'; set ylabel 'Detected Pitch (Hz)'");
-plot.cmd("set xrange [0:2.3]; set yrange [-20:440]; set key top left box opaque");
-plot.cmd("plot 'build/vocal_yin_raw.csv' u ($1*400.0):($2*500.0) w lp pt 7 ps 0.9 lw 2.2 lc rgb '#d62728' t 'YIN f0(t) Estimate (0 Hz in Silent Gap)'");
+plot.cmd("set title 'YIN pitch track (Buffer.pitch\\_track\\_csv, 60 ms windows every 20 ms) vs the true f0(t)'; set xlabel 'Time (s)'; set ylabel 'f0 (Hz)'");
+plot.cmd("set xrange [0:2.5]; set yrange [150:420]; set key top left nobox font ',9.5'; set samples 2000");
+plot.cmd("truth(t) = t < 1.4 ? 220 + 110*t + 5.18*cos(2*pi*5.5*t) : (t > 1.65 ? 330 + 5.83*cos(2*pi*5.8*(t-1.65)) : 1/0)");
+plot.cmd("set label 1 'breath gap: unvoiced, no f0' at 1.38, 250 font ',9.5' tc rgb '#64748b'");
+plot.cmd("plot truth(x) w l lw 5 lc rgb '#cbd5e1' t 'true f0 (glide 220 -> 374 Hz with 5.5 Hz vibrato, then E4 = 330 Hz)', 'build/vocal_track.csv' u 1:($2 > 0 ? $2 : 1/0) w p pt 7 ps 0.6 lc rgb '#d62728' t 'YIN estimate'");
 
 plot.cmd("unset multiplot");
 plot.close();

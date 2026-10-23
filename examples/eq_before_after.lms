@@ -1,5 +1,6 @@
 # Parametric 4-Band Mastering EQ Before/After with STFT Spectrograms & FFT Spectrum Comparison:
-# Removes 55 Hz sub-rumble, cuts 220 Hz mud (-7 dB), notches harsh 2400 Hz ringing (-11 dB), and adds 5500 Hz air (+5.5 dB).
+# High-pass at 75 Hz removes 45 Hz hum, cuts 220 Hz mud (-9 dB), notches harsh 2400 Hz ringing (-16 dB) and adds a
+# 5.2 kHz air shelf (+5.5 dB); asserts that the 2.4 kHz ring drops by more than 11 dB.
 mkdir("build");
 mkdir("audio");
 mkdir("images");
@@ -55,7 +56,7 @@ plot.cmd("set multiplot layout 2,2 title '4-Band Parametric Mastering EQ: Before
 plot.cmd("set border 3; set tics nomirror; set grid lc rgb '#e0e0e0'");
 
 plot.cmd("set title 'Before EQ (220 Hz Mud + 2.4 kHz Ring)' font ',11'; set xlabel 'Time (s)'; set ylabel 'Frequency (Hz)'");
-plot.cmd("set xrange [0:1.9]; set yrange [0:7000]; set cbrange [-70:0]; set cblabel 'dB'");
+plot.cmd("set xrange [0:1.9]; set yrange [0:7000]; set cbrange [-70:0]; unset colorbox");
 plot.cmd("set pm3d map; set palette defined (0 '#081d58', 0.25 '#225ea8', 0.5 '#41b6c4', 0.75 '#fed976', 1 '#bd0026')");
 plot.cmd("splot 'build/eq_sgram_before.csv' u 1:2:3 notitle");
 
@@ -65,12 +66,12 @@ plot.cmd("splot 'build/eq_sgram_after.csv' u 1:2:3 notitle");
 
 plot.cmd("unset pm3d");
 plot.cmd("set title 'Parametric EQ Band Transfer Curves' font ',11'; set xlabel 'Frequency (Hz)'; set ylabel 'Gain (dB)'");
-plot.cmd("set logscale x; set xrange [30:9000]; set yrange [-17:8]; set key bottom left box opaque");
+plot.cmd("set logscale x; set xrange [30:9000]; set yrange [-17:8]; set key bottom left nobox font ',9'");
 plot.cmd("plot 'build/eq_curve_mud.csv' u 1:3 w l lw 2.2 lc rgb '#ff7f0e' t '220 Hz Mud (-9 dB)', 'build/eq_curve_harsh.csv' u 1:3 w l lw 2.2 lc rgb '#d62728' t '2.4 kHz Cut (-16 dB)', 'build/eq_curve_air.csv' u 1:3 w l lw 2.2 lc rgb '#2ca02c' t '5.2 kHz Air (+5.5 dB)'");
 
 plot.cmd("unset logscale x");
 plot.cmd("set title 'FFT Spectrum: Before vs After EQ' font ',11'; set xlabel 'Frequency (Hz)'; set ylabel 'Level (dB)'");
-plot.cmd("set xrange [40:7000]; set yrange [-65:0]; set key top right box opaque");
+plot.cmd("set xrange [40:7000]; set yrange [-65:12]; set key top right nobox font ',9'");
 plot.cmd("plot 'build/eq_spec_before.csv' u 1:3 w l lw 1.5 lc rgb '#d62728' t 'Before EQ (Harsh 2.4 kHz Peak)', 'build/eq_spec_after.csv' u 1:3 w l lw 1.6 lc rgb '#1f77b4' t 'After 4-Band EQ'");
 
 plot.cmd("unset multiplot");

@@ -1,0 +1,144 @@
+# Three roads to one note: subtractive, additive and FM synthesis of a brassy A3 (220 Hz).
+# - Subtractive: start from a harmonically rich PolyBLEP sawtooth and carve it with a 24 dB/oct
+#   Moog ladder low-pass (Minimoog style).
+# - Additive: sum ten sine partials k x 220 Hz with amplitudes 1/k (the sawtooth series, cut at
+#   the 10th harmonic; Hammond/organ style).
+# - FM: one 220 Hz sine bends the phase of another (ratio 1, index 2.5); sidebands at k x 220 Hz
+#   with Bessel amplitudes J_k (Yamaha DX7 style).
+# All three are checked to sound at 220 Hz; the harmonic bar chart shows how differently they
+# distribute energy: additive stops dead at harmonic 10, the ladder rolls off smoothly, FM
+# concentrates energy in the low harmonics with a Bessel-shaped tail.
+# Writes images/synthesis_methods_compared.png and audio/synthesis_methods_compared.wav.
+mkdir("build");
+mkdir("build/rendered");
+mkdir("images");
+mkdir("audio");
+
+a = _dsl_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+let sr = 22050;
+let f0 = 220.0;
+let dur = 1.2;
+let sub = audio.saw(f0, dur, 0.8, sr).ladder(1200.0, 0.2, 1.0, "lp24").adsr(0.04, 0.2, 0.75, 0.25).normalize(0.8);
+let add = audio.additive(f0, dur, 1.0, "1 0.5 0.3333 0.25 0.2 0.1667 0.1429 0.125 0.1111 0.1", sr).adsr(0.04, 0.2, 0.75, 0.25).normalize(0.8);
+let fm = audio.fm(f0, 1.0, 2.5, dur, 0.8, sr).adsr(0.04, 0.2, 0.75, 0.25).normalize(0.8);
+
+# All three play A3.
+audio.assert_close(sub.pitch(100.0, 1000.0), f0, 0.5);
+audio.assert_close(add.pitch(100.0, 1000.0), f0, 0.5);
+audio.assert_close(fm.pitch(100.0, 1000.0), f0, 0.5);
+
+# Harmonic levels (dB re strongest harmonic) from flat-top spectra of the sustained part.
+let s_sub = sub.slice(0.3, 0.9).spectrum("flattop", 16384);
+let s_add = add.slice(0.3, 0.9).spectrum("flattop", 16384);
+let s_fm = fm.slice(0.3, 0.9).spectrum("flattop", 16384);
+fn level(s: Spectrum, f: float) -> float {
+  return audio.db(s.mag_at_freq(f));
+}
+let ref_sub = level(s_sub, f0);
+let ref_add = level(s_add, f0);
+let ref_fm = max(level(s_fm, f0), level(s_fm, 2.0 * f0));
+let rows = "# harmonic,subtractive_db,additive_db,fm_db\n";
+for (k in range(1, 17)) {
+  let fk = f0 * float(k);
+  rows = rows + str(k) + "," + str(max(level(s_sub, fk) - ref_sub, -80.0)) + "," + str(max(level(s_add, fk) - ref_add, -80.0)) + "," + str(max(level(s_fm, fk) - ref_fm, -80.0)) + "\n";
+}
+audio.save_text("build/synth_harmonics.csv", rows);
+
+# Additive: harmonic k is exactly 20 log10(1/k) below the fundamental, and harmonic 11 is absent.
+audio.assert_close(level(s_add, 3.0 * f0) - ref_add, audio.db(1.0 / 3.0), 0.1);
+audio.assert_close(max(level(s_add, 11.0 * f0) - ref_add, -60.0), -60.0, 0.0);
+# FM with ratio 1: J_0(2.5) = -0.048 and J_2(2.5) = 0.446 fold onto DC and 220 Hz, so the first
+# harmonics are J_1 + J_-1 ... (checked loosely: the 2nd harmonic is strong, within 6 dB of the max).
+audio.assert_close(min(level(s_fm, 2.0 * f0) - ref_fm, 0.0), 0.0, 6.0);
+
+audio.print("spectral centroid: subtractive " + str(sub.slice(0.3, 0.9).centroid()) + " Hz, additive " + str(add.slice(0.3, 0.9).centroid()) + " Hz, FM " + str(fm.slice(0.3, 0.9).centroid()) + " Hz");
+
+# Two periods of each waveform from the sustain.
+sub.slice(0.5, 0.5 + 2.0 / f0).save_csv("build/synth_wave_sub.csv");
+add.slice(0.5, 0.5 + 2.0 / f0).save_csv("build/synth_wave_add.csv");
+fm.slice(0.5, 0.5 + 2.0 / f0).save_csv("build/synth_wave_fm.csv");
+
+let gap = audio.silence(0.15, sr);
+sub.concat(gap).concat(add).concat(gap).concat(fm).save_wav("audio/synthesis_methods_compared.wav", 16);
+end _dsl_
+savedsl(a, "build/synthesis_methods_compared.dslb");
+r1 = system ${dsl_cli(a)} --dsl build/synthesis_methods_compared.dslb;
+for (l in lines(r1.stdout)) { if (!starts_with(l, "{")) { println(l); } }
+if (r1.code != 0) { println(r1.stderr); }
+assert(r1.code == 0);
+
+d = _dsl_ cli="lmdraw" install="github:lmctl-ai/lmdraw@latest";
+fn box(x: float, y: float, w: float, h: float, fill: string, stroke: string, t1: string, t2: string) -> int {
+  scene.rect(x, y, w, h, fill).set_attr("stroke", stroke);
+  scene.text(x + w / 2.0, y + h / 2.0 - 1.0, 13.0, t1, "#0f172a").set_attr("text-anchor", "middle");
+  scene.text(x + w / 2.0, y + h / 2.0 + 14.0, 11.0, t2, "#334155").set_attr("text-anchor", "middle");
+  return 0;
+}
+fn down(x: float, y0: float, y1: float) -> int {
+  scene.arrow(x, y0, x, y1, "#334155", 1.8);
+  return 0;
+}
+scene.canvas(940, 250, "#ffffff");
+# Subtractive
+scene.text(155.0, 22.0, 15.0, "Subtractive", "#b91c1c").set_attr("text-anchor", "middle");
+let z = box(55.0, 36.0, 200.0, 44.0, "#fee2e2", "#b91c1c", "sawtooth oscillator", "220 Hz, all harmonics 1/k");
+z = down(155.0, 80.0, 100.0);
+z = box(55.0, 100.0, 200.0, 44.0, "#fee2e2", "#b91c1c", "Moog ladder low-pass", "24 dB/oct, cutoff 1.2 kHz");
+z = down(155.0, 144.0, 164.0);
+z = box(55.0, 164.0, 200.0, 44.0, "#f1f5f9", "#475569", "ADSR envelope", "40 ms attack");
+scene.text(155.0, 232.0, 12.0, "start rich, carve away", "#7f1d1d").set_attr("text-anchor", "middle");
+# Additive
+scene.text(470.0, 22.0, 15.0, "Additive", "#1d4ed8").set_attr("text-anchor", "middle");
+z = box(370.0, 36.0, 200.0, 44.0, "#dbeafe", "#1d4ed8", "10 sine oscillators", "k × 220 Hz, amplitude 1/k");
+z = down(470.0, 80.0, 100.0);
+z = box(370.0, 100.0, 200.0, 44.0, "#dbeafe", "#1d4ed8", "sum  Σ", "no filter: harmonic 11+ absent");
+z = down(470.0, 144.0, 164.0);
+z = box(370.0, 164.0, 200.0, 44.0, "#f1f5f9", "#475569", "ADSR envelope", "40 ms attack");
+scene.text(470.0, 232.0, 12.0, "build up partial by partial", "#1e3a8a").set_attr("text-anchor", "middle");
+# FM
+scene.text(785.0, 22.0, 15.0, "FM (2-operator)", "#15803d").set_attr("text-anchor", "middle");
+z = box(685.0, 36.0, 200.0, 44.0, "#dcfce7", "#15803d", "modulator sine", "220 Hz × index β = 2.5");
+z = down(785.0, 80.0, 100.0);
+z = box(685.0, 100.0, 200.0, 44.0, "#dcfce7", "#15803d", "carrier sine", "phase += β sin(ω_m t)");
+z = down(785.0, 144.0, 164.0);
+z = box(685.0, 164.0, 200.0, 44.0, "#f1f5f9", "#475569", "ADSR envelope", "40 ms attack");
+scene.text(785.0, 232.0, 12.0, "one sine bends another", "#14532d").set_attr("text-anchor", "middle");
+scene.line(312.0, 30.0, 312.0, 236.0, "#e2e8f0", 1.0);
+scene.line(627.0, 30.0, 627.0, 236.0, "#e2e8f0", 1.0);
+scene.render_png("build/rendered/synth_flows.png", 940, 250, 2);
+end _dsl_
+savedsl(d, "build/synthesis_methods_compared-diagram.dslb");
+r2 = system ${dsl_cli(d)} --dsl build/synthesis_methods_compared-diagram.dslb;
+if (r2.code != 0) { println(r2.stderr); }
+assert(r2.code == 0);
+
+p = _dsl_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+plot.png("images/synthesis_methods_compared.png", 980, 760);
+plot.cmd("set encoding utf8");
+plot.cmd("set datafile separator ','");
+plot.cmd("set multiplot");
+plot.cmd("set label 99 'Three roads to a brassy A3 (220 Hz): subtractive, additive, FM' at screen 0.5, 0.975 center font ',14'");
+plot.cmd("set pixmap 1 'build/rendered/synth_flows.png' at screen 0.02, 0.62 width screen 0.96");
+
+plot.script("set lmargin at screen 0.115\nset rmargin at screen 0.41\nset tmargin at screen 0.56\nset bmargin at screen 0.08");
+plot.cmd("set title 'Two periods of the sustain (offset for clarity)' font ',11'");
+plot.cmd("set xlabel 'time (ms)'; set ylabel ''; set ytics ('FM' -2.2, 'additive' 0, 'subtractive' 2.2)");
+plot.cmd("set xrange [0:9.09]; set yrange [-3.3:3.3]; set grid xtics lc rgb '#e2e8f0'");
+plot.cmd("plot 'build/synth_wave_sub.csv' u ($1*1000):($2+2.2) w l lw 2 lc rgb '#dc2626' notitle, 'build/synth_wave_add.csv' u ($1*1000):2 w l lw 2 lc rgb '#2563eb' notitle, 'build/synth_wave_fm.csv' u ($1*1000):($2-2.2) w l lw 2 lc rgb '#16a34a' notitle");
+
+plot.cmd("unset pixmap 1; set ytics auto");
+plot.script("set lmargin at screen 0.48\nset rmargin at screen 0.98\nset tmargin at screen 0.56\nset bmargin at screen 0.08");
+plot.cmd("set title 'Harmonic levels (flat-top FFT, dB re strongest)' font ',11'");
+plot.cmd("set xlabel 'harmonic number k (× 220 Hz)'; set ylabel 'level (dB)'");
+plot.cmd("set xrange [0.4:16.6]; set yrange [0:84]; set ytics ('0' 80, '-20' 60, '-40' 40, '-60' 20, '-80' 0); set xtics 1; set grid ytics lc rgb '#e2e8f0'");
+plot.cmd("set style fill solid 0.85 noborder; set boxwidth 0.26");
+plot.cmd("set key top right font ',9.5' opaque box lc rgb '#cbd5e1'");
+plot.cmd("plot 'build/synth_harmonics.csv' u ($1-0.28):($2+80):(0.26) w boxes lc rgb '#dc2626' t 'subtractive', '' u ($1):($3+80):(0.26) w boxes lc rgb '#2563eb' t 'additive', '' u ($1+0.28):($4+80):(0.26) w boxes lc rgb '#16a34a' t 'FM'");
+plot.cmd("unset multiplot");
+plot.close();
+end _dsl_
+savedsl(p, "build/synthesis_methods_compared-plot.dslb");
+r3 = system ${dsl_cli(p)} --dsl build/synthesis_methods_compared-plot.dslb;
+if (r3.code != 0) { println(r3.stderr); }
+assert(r3.code == 0);
+println("wrote images/synthesis_methods_compared.png and audio/synthesis_methods_compared.wav");

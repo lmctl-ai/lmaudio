@@ -1,0 +1,125 @@
+# A drum machine in a few lines: step patterns written as text, played by 808-style voices.
+# Buffer.pattern(steps, bpm, steps_per_beat) places a hit on a 16th-note grid: 'X' accent,
+# 'x' normal, 'o' ghost note, '.' rest, '|' bar line. Four voices (analog kick at 55 Hz, snare,
+# closed and open hi-hat) make two bars of a 124 BPM house groove. The script checks that the
+# kick really sounds at 55 Hz, that a bar lasts 4 x 60/124 s, and that the first open hi-hat
+# lands exactly on the 3rd sixteenth.
+# Writes images/drum_machine_pattern.png and audio/drum_machine_pattern.wav.
+mkdir("build");
+mkdir("build/rendered");
+mkdir("images");
+mkdir("audio");
+
+a = _dsl_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+let sr = 22050;
+let bpm = 124.0;
+let kick = audio.drum("kick", 55.0, 0.5, 0.55, 0.45, 0.9, sr).normalize(0.95);
+let snare = audio.drum("snare", 200.0, 0.3, 0.45, 0.6, 0.85, sr).normalize(0.95);
+let hat = audio.drum("hihat", 3800.0, 0.06, 0.15, 0.7, 0.75, sr).normalize(0.95);
+let open = audio.drum("hihat", 3800.0, 0.3, 0.7, 0.7, 0.85, sr).normalize(0.95);
+
+audio.assert_close(kick.slice(0.05, 0.45).pitch(30.0, 200.0), 55.0, 1.0);
+
+let k = kick.pattern("X...X...X...X...|X...X...X...X.x.", bpm, 4);
+let s = snare.pattern("....X.......X...|....X.......X..o", bpm, 4);
+let h = hat.pattern("xo.oxo.oxo.oxo.o|xo.oxo.oxo.oxo.x", bpm, 4);
+let oh = open.pattern("..X...X...X...X.|..X...X...X...X.", bpm, 4);
+let bar = 4.0 * 60.0 / bpm;
+# The last kick sits on step 31 of 32, so the buffer ends one kick-length after 30 steps.
+audio.assert_close(k.duration() - kick.duration(), 30.0 * bar / 16.0, 0.001);
+# First open hat at step 3 (index 2): silent before, sound right on the grid.
+let t_oh = 2.0 * 0.25 * 60.0 / bpm;
+audio.assert_close(oh.slice(0.0, t_oh - 0.002).peak(), 0.0, 0.0);
+audio.assert_close(min(oh.slice(t_oh, t_oh + 0.02).peak(), 0.05), 0.05, 0.0);
+
+let groove = k.mix(s, 0.6).mix(h, 0.25).mix(oh, 0.22).slice(0.0, 2.0 * bar + 0.25).normalize(0.9);
+groove.save_wav("audio/drum_machine_pattern.wav", 16);
+groove.save_csv("build/dm_wave.csv", 4000);
+groove.spectrogram(512, 96, "hann", 8000.0).save_csv("build/dm_sgram.csv", -80.0);
+kick.spectrum("hann", 16384).save_csv("build/dm_kick_spec.csv", 8000.0);
+snare.spectrum("hann", 16384).save_csv("build/dm_snare_spec.csv", 8000.0);
+open.spectrum("hann", 16384).save_csv("build/dm_hat_spec.csv", 8000.0);
+audio.save_text("build/dm_grid.gp", "bar = " + str(bar) + "; step = " + str(bar / 16.0) + "\n");
+audio.print("two bars at " + str(bpm) + " BPM = " + str(2.0 * bar) + " s; kick pitch " + str(kick.slice(0.05, 0.45).pitch(30.0, 200.0)) + " Hz");
+end _dsl_
+savedsl(a, "build/drum_machine_pattern.dslb");
+r1 = system ${dsl_cli(a)} --dsl build/drum_machine_pattern.dslb;
+for (l in lines(r1.stdout)) { if (!starts_with(l, "{")) { println(l); } }
+if (r1.code != 0) { println(r1.stderr); }
+assert(r1.code == 0);
+
+# The step grid as a drum-machine panel (bar 1).
+d = _dsl_ cli="lmdraw" install="github:lmctl-ai/lmdraw@latest";
+scene.canvas(940, 210, "#1e293b");
+fn cell(rr: int, step: int, fill: string) -> int {
+  let x = 150.0 + float(step) * 48.0 + float(step / 4) * 8.0;
+  let y = 34.0 + float(rr) * 42.0;
+  scene.rect(x, y, 40.0, 32.0, fill).set_attr("rx", "5");
+  return 0;
+}
+fn lane(r: int, name: string) -> int {
+  scene.text(18.0, 56.0 + float(r) * 42.0, 15.0, name, "#e2e8f0");
+  for (i in range(0, 16)) {
+    let z = cell(r, i, "#334155");
+  }
+  return 0;
+}
+scene.text(470.0, 22.0, 14.0, "Bar 1 of the pattern strings  (X accent, x normal, o ghost)", "#f8fafc").set_attr("text-anchor", "middle");
+let z = lane(0, "kick");
+z = lane(1, "snare");
+z = lane(2, "hat");
+z = lane(3, "open hat");
+for (i in range(0, 4)) {
+  z = cell(0, 4 * i, "#f97316");
+  z = cell(2, 4 * i, "#a3e635");
+  z = cell(2, 4 * i + 1, "#4d7c0f");
+  z = cell(2, 4 * i + 3, "#4d7c0f");
+  z = cell(3, 4 * i + 2, "#facc15");
+}
+z = cell(1, 4, "#38bdf8");
+z = cell(1, 12, "#38bdf8");
+scene.render_png("build/rendered/dm_grid.png", 940, 210, 2);
+end _dsl_
+savedsl(d, "build/drum_machine_pattern-grid.dslb");
+r2 = system ${dsl_cli(d)} --dsl build/drum_machine_pattern-grid.dslb;
+if (r2.code != 0) { println(r2.stderr); }
+assert(r2.code == 0);
+
+p = _dsl_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+plot.png("images/drum_machine_pattern.png", 980, 760);
+plot.cmd("set encoding utf8");
+plot.cmd("set datafile separator ','");
+plot.cmd("load 'build/dm_grid.gp'");
+plot.cmd("set multiplot");
+plot.cmd("set label 99 'Drum machine from text: two bars of 124 BPM house, 16th-note grid' at screen 0.5, 0.975 center font ',14'");
+plot.cmd("set pixmap 1 'build/rendered/dm_grid.png' at screen 0.09, 0.715 width screen 0.82");
+
+plot.script("set lmargin at screen 0.08\nset rmargin at screen 0.97\nset tmargin at screen 0.655\nset bmargin at screen 0.47");
+plot.cmd("set title 'Waveform (dotted lines: beats)' font ',11'");
+plot.cmd("set xlabel ''; set ylabel 'amplitude'; set xrange [0:2*bar+0.25]; set yrange [-1:1]; set ytics 0.5; set format x ''");
+plot.cmd("set for [i=1:8] arrow i from i*bar/4, -1 to i*bar/4, 1 nohead dt 3 lc rgb '#94a3b8'");
+plot.cmd("plot 'build/dm_wave.csv' u 1:2 w l lw 0.7 lc rgb '#334155' notitle");
+plot.cmd("unset for [i=1:8] arrow i; unset pixmap 1; set format x '%g'");
+
+plot.script("set lmargin at screen 0.08\nset rmargin at screen 0.60\nset tmargin at screen 0.40\nset bmargin at screen 0.08");
+plot.cmd("set title 'Spectrogram' font ',11'");
+plot.cmd("set xlabel 'time (s)'; set ylabel 'frequency (Hz)'; set yrange [0:8000]; set ytics 2000; set cbrange [-80:0]; unset colorbox");
+plot.cmd("set pm3d map; set palette defined (0 '#0b1026', 0.35 '#253494', 0.6 '#41b6c4', 0.85 '#fed976', 1 '#ffffcc')");
+plot.cmd("splot 'build/dm_sgram.csv' u 1:2:3 notitle");
+plot.cmd("unset pm3d");
+
+plot.script("set lmargin at screen 0.69\nset rmargin at screen 0.97\nset tmargin at screen 0.40\nset bmargin at screen 0.08");
+plot.cmd("set title 'Voice spectra' font ',11'");
+plot.cmd("set logscale x; set xrange [30:8000]; set yrange [-80:0]; set ytics 20; set xlabel 'frequency (Hz)'; set ylabel 'dB'");
+plot.cmd("set key bottom left font ',9' opaque box lc rgb '#cbd5e1'");
+plot.cmd("set arrow 20 from 55, -80 to 55, 0 nohead dt 2 lc rgb '#f97316'");
+plot.cmd("set label 20 '55 Hz' at 60, -6 font ',9' tc rgb '#c2410c'");
+plot.cmd("plot 'build/dm_kick_spec.csv' u 1:3 w l lw 1.8 lc rgb '#f97316' t 'kick', 'build/dm_snare_spec.csv' u 1:3 w l lw 1.2 lc rgb '#0284c7' t 'snare', 'build/dm_hat_spec.csv' u 1:3 w l lw 1.2 lc rgb '#ca8a04' t 'open hat'");
+plot.cmd("unset multiplot");
+plot.close();
+end _dsl_
+savedsl(p, "build/drum_machine_pattern-plot.dslb");
+r3 = system ${dsl_cli(p)} --dsl build/drum_machine_pattern-plot.dslb;
+if (r3.code != 0) { println(r3.stderr); }
+assert(r3.code == 0);
+println("wrote images/drum_machine_pattern.png and audio/drum_machine_pattern.wav");

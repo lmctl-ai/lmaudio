@@ -2,7 +2,7 @@
 # Regenerate docs/images/*.{png,gif} and docs/audio/*.wav from examples/*.lms.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-export PATH="$PWD/build:/home/mma/repos/dsl/lmplot/build:$PATH"
+export PATH="$PWD/build:$PATH"  # lmplot/lmdraw: released versions via install= (what autorun uses)
 LMSCRIPT="$(scripts/select-compiler.sh)"
 mkdir -p build images audio docs/images docs/audio
 for src in examples/*.lms; do

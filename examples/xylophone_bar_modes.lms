@@ -1,0 +1,159 @@
+# Struck bars: why a xylophone's overtones are not harmonic, and how the supports decide them.
+# audio.bar solves the damped Euler-Bernoulli beam equation u_tt = -kappa^2 u_xxxx (finite
+# differences, Bilbao 2009) for three ways of holding the bar:
+#   free-free      xylophone / marimba bar resting on cords   modes 1 : 2.757 : 5.404 : 8.933
+#   clamped-free   kalimba tine, tuning-fork prong            modes 1 : 6.267 : 17.55
+#   pinned-pinned  bar hinged at both ends                    modes 1 : 4 : 9 : 16
+# (theory: f_n = kappa (beta_n L)^2 / 2 pi). The script measures the first modes from each bar's
+# spectrum and asserts them against the textbook ratios (3 %), then tunes free-free bars by ear
+# the way a bar maker does - strike, measure, correct the stiffness - and plays a short phrase.
+# A string would give 1 : 2 : 3 : 4; the stretched bar spectrum is what makes a xylophone sound
+# "woody" rather than "stringy".
+# Writes images/xylophone_bar_modes.png and audio/xylophone_bar_modes.wav.
+mkdir("build");
+mkdir("build/rendered");
+mkdir("images");
+mkdir("audio");
+
+a = _dsl_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+let sr = 44100;
+let kappa = 60.0;
+let ff = audio.bar(3, 3, kappa, 2.0, 2.0, 0.8, sr);
+let cf = audio.bar(1, 3, kappa, 2.0, 2.0, 0.8, sr);
+let pp = audio.bar(2, 2, kappa, 2.0, 2.0, 0.8, sr);
+let s_ff = ff.spectrum("hann", 131072);
+let s_cf = cf.spectrum("hann", 131072);
+let s_pp = pp.spectrum("hann", 131072);
+fn mode(s: Spectrum, f_guess: float) -> float {
+  return s.peak_freq_in(f_guess * 0.93, f_guess * 1.07);
+}
+let tp = 6.283185307179586;
+let f1_ff = mode(s_ff, kappa * 4.7300 * 4.7300 / tp);
+let f1_cf = mode(s_cf, kappa * 1.8751 * 1.8751 / tp);
+let f1_pp = mode(s_pp, kappa * 3.14159265 * 3.14159265 / tp);
+let rows = "# mode,ff_measured,ff_theory,cf_measured,cf_theory,pp_measured,pp_theory\n";
+for (n in range(1, 5)) {
+  let bff = 4.7300;
+  let bcf = 1.8751;
+  if (n == 2) { bff = 7.8532; bcf = 4.6941; }
+  if (n == 3) { bff = 10.9956; bcf = 7.8548; }
+  if (n == 4) { bff = 14.1372; bcf = 10.9955; }
+  let r_ff = (bff * bff) / (4.7300 * 4.7300);
+  let r_cf = (bcf * bcf) / (1.8751 * 1.8751);
+  let r_pp = float(n * n);
+  let m_ff = mode(s_ff, f1_ff * r_ff) / f1_ff;
+  let m_cf = mode(s_cf, f1_cf * r_cf) / f1_cf;
+  let m_pp = mode(s_pp, f1_pp * r_pp) / f1_pp;
+  if (n <= 3) {
+    audio.assert_close(m_ff, r_ff, 0.03 * r_ff);
+    audio.assert_close(m_cf, r_cf, 0.03 * r_cf);
+    audio.assert_close(m_pp, r_pp, 0.03 * r_pp);
+  }
+  rows = rows + str(n) + "," + str(m_ff) + "," + str(r_ff) + "," + str(m_cf) + "," + str(r_cf) + "," + str(m_pp) + "," + str(r_pp) + "\n";
+}
+audio.save_text("build/bar_modes.csv", rows);
+audio.print("fundamentals at kappa = 60: free-free " + str(f1_ff) + " Hz, clamped-free " + str(f1_cf) + " Hz, pinned " + str(f1_pp) + " Hz");
+let sp_ff = ff.spectrum("hann", 32768);
+let sp_cf = cf.spectrum("hann", 32768);
+let sp_pp = pp.spectrum("hann", 32768);
+sp_ff.save_csv("build/bar_spec_ff.csv", 6000.0);
+sp_cf.save_csv("build/bar_spec_cf.csv", 6000.0);
+sp_pp.save_csv("build/bar_spec_pp.csv", 6000.0);
+audio.save_text("build/bar_f1.gp", "f1ff = " + str(f1_ff) + "; f1cf = " + str(f1_cf) + "; f1pp = " + str(f1_pp) + "; pkff = " + str(audio.db(sp_ff.peak_mag())) + "; pkcf = " + str(audio.db(sp_cf.peak_mag())) + "; pkpp = " + str(audio.db(sp_pp.peak_mag())) + "\n");
+
+# Tune a free-free bar to a target pitch: strike, measure, scale the stiffness, repeat.
+fn tuned_bar(target: float, dur: float) -> Buffer {
+  let k = 6.283185307179586 * target / (4.7300 * 4.7300);
+  for (it in range(0, 3)) {
+    let f = audio.bar(3, 3, k, 0.9, 0.6, 0.8, 44100).spectrum("hann", 65536).peak_freq_in(target * 0.85, target * 1.15);
+    k = k * target / f;
+  }
+  return audio.bar(3, 3, k, 0.9, dur, 0.8, 44100);
+}
+let c5 = tuned_bar(audio.note_freq("C5"), 0.6);
+audio.assert_close(audio.cents(c5.spectrum("hann", 65536).peak_freq_in(470.0, 580.0), audio.note_freq("C5")), 0.0, 3.0);
+let phrase = audio.silence(4.2, sr);
+fn hit(buf: Buffer, note: string, at: float, dur: float) -> Buffer {
+  return buf.mix(tuned_bar(audio.note_freq(note), dur), 0.8, at);
+}
+phrase = hit(phrase, "C5", 0.0, 0.8);
+phrase = hit(phrase, "E5", 0.3, 0.8);
+phrase = hit(phrase, "G5", 0.6, 0.8);
+phrase = hit(phrase, "C6", 0.9, 1.0);
+phrase = hit(phrase, "A5", 1.5, 0.8);
+phrase = hit(phrase, "G5", 1.8, 0.8);
+phrase = hit(phrase, "E5", 2.1, 0.8);
+phrase = hit(phrase, "G5", 2.4, 0.8);
+phrase = hit(phrase, "C5", 2.7, 1.4);
+phrase = hit(phrase, "C6", 2.7, 1.4);
+phrase.resample(22050).slice(0.0, 4.2).normalize(0.9).fade(0.0, 0.3).save_wav("audio/xylophone_bar_modes.wav", 16);
+end _dsl_
+savedsl(a, "build/xylophone_bar_modes.dslb");
+r1 = system ${dsl_cli(a)} --dsl build/xylophone_bar_modes.dslb;
+for (l in lines(r1.stdout)) { if (!starts_with(l, "{")) { println(l); } }
+if (r1.code != 0) { println(r1.stderr); }
+assert(r1.code == 0);
+
+# The three supports and the shape of each bar's first mode.
+d = _dsl_ cli="lmdraw" install="github:lmctl-ai/lmdraw@latest";
+scene.canvas(460, 330, "#ffffff");
+scene.text(230.0, 22.0, 15.0, "Supports and first mode shape", "#0f172a").set_attr("text-anchor", "middle");
+# free-free: bar on two cords at the nodes (0.224 L and 0.776 L)
+scene.text(20.0, 60.0, 13.0, "free-free", "#b91c1c");
+scene.path("M 130 75 C 190 102, 300 102, 410 75", "none", "#dc2626", 3.0);
+scene.rect(130.0, 70.0, 280.0, 10.0, "#fca5a5").set_attr("opacity", "0.5");
+scene.circle(193.0, 92.0, 4.0, "#334155");
+scene.circle(347.0, 92.0, 4.0, "#334155");
+scene.text(270.0, 122.0, 11.0, "cords at the nodes, 22 % from each end (xylophone)", "#475569").set_attr("text-anchor", "middle");
+# clamped-free
+scene.text(20.0, 160.0, 13.0, "clamped-free", "#7c3aed");
+scene.rect(118.0, 145.0, 12.0, 40.0, "#475569");
+scene.path("M 130 165 C 230 165, 330 175, 410 195", "none", "#7c3aed", 3.0);
+scene.rect(130.0, 160.0, 280.0, 10.0, "#c4b5fd").set_attr("opacity", "0.5");
+scene.text(270.0, 215.0, 11.0, "one end gripped (kalimba tine)", "#475569").set_attr("text-anchor", "middle");
+# pinned-pinned
+scene.text(20.0, 255.0, 13.0, "pinned-pinned", "#0f766e");
+scene.path("M 130 262 C 200 300, 340 300, 410 262", "none", "#0d9488", 3.0);
+scene.rect(130.0, 257.0, 280.0, 10.0, "#99f6e4").set_attr("opacity", "0.5");
+scene.path("M 122 278 L 130 262 L 138 278 Z", "#334155", "#334155", 1.0);
+scene.path("M 402 278 L 410 262 L 418 278 Z", "#334155", "#334155", 1.0);
+scene.text(270.0, 316.0, 11.0, "hinged ends: modes 1 : 4 : 9 (n squared)", "#475569").set_attr("text-anchor", "middle");
+scene.render_png("build/rendered/bar_supports.png", 460, 330, 2);
+end _dsl_
+savedsl(d, "build/xylophone_bar_modes-diagram.dslb");
+r2 = system ${dsl_cli(d)} --dsl build/xylophone_bar_modes-diagram.dslb;
+if (r2.code != 0) { println(r2.stderr); }
+assert(r2.code == 0);
+
+p = _dsl_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+plot.png("images/xylophone_bar_modes.png", 980, 720);
+plot.cmd("set encoding utf8");
+plot.cmd("set datafile separator ','");
+plot.cmd("load 'build/bar_f1.gp'; max(a, b) = a > b ? a : b");
+plot.cmd("set multiplot");
+plot.cmd("set label 99 'Struck bars: the supports set the overtones (Euler-Bernoulli beam, finite differences)' at screen 0.5, 0.97 center font ',13.5'");
+plot.cmd("set pixmap 1 'build/rendered/bar_supports.png' at screen 0.01, 0.43 width screen 0.47");
+
+plot.script("set lmargin at screen 0.57\nset rmargin at screen 0.97\nset tmargin at screen 0.90\nset bmargin at screen 0.52");
+plot.cmd("set title 'Mode frequencies f_n / f_1: measured (points) vs theory (lines)' font ',10.5'");
+plot.cmd("set xlabel 'mode n'; set ylabel 'f_n / f_1'; set xrange [0.7:4.3]; set xtics 1; set logscale y; set yrange [0.8:150]; set grid lc rgb '#e2e8f0'");
+plot.cmd("set key top left font ',9' opaque box lc rgb '#cbd5e1'");
+plot.cmd("plot 'build/bar_modes.csv' u 1:5 w l lw 1.5 lc rgb '#7c3aed' notitle, '' u 1:4 w p pt 7 ps 1.2 lc rgb '#7c3aed' t 'clamped-free', '' u 1:7 w l lw 1.5 lc rgb '#0d9488' notitle, '' u 1:6 w p pt 5 ps 1.2 lc rgb '#0d9488' t 'pinned-pinned', '' u 1:3 w l lw 1.5 lc rgb '#dc2626' notitle, '' u 1:2 w p pt 9 ps 1.4 lc rgb '#dc2626' t 'free-free', x w l dt 2 lw 1.5 lc rgb '#64748b' t 'string (harmonic)'");
+
+plot.cmd("unset pixmap 1; unset logscale y; set xtics auto");
+plot.script("set lmargin at screen 0.08\nset rmargin at screen 0.97\nset tmargin at screen 0.38\nset bmargin at screen 0.09");
+plot.cmd("set title 'Spectra (each scaled to its strongest mode) against f / f_1: bar overtones fall between string harmonics' font ',10.5'");
+plot.cmd("set xlabel 'f / f_1'; set ylabel ''; set xrange [0:10]; set xtics 1; set yrange [-195:5]; set ytics ('0 dB' 0, '-40' -40, '0 dB' -65, '-40' -105, '0 dB' -130, '-40' -170) font ',8.5'");
+plot.cmd("set for [k=1:10] arrow k from k, -195 to k, 5 nohead dt 3 lc rgb '#cbd5e1'");
+plot.cmd("set label 11 'free-free (xylophone)' at 6.5, -12 font ',10' tc rgb '#dc2626'");
+plot.cmd("set label 12 'clamped-free (kalimba)' at 6.5, -77 font ',10' tc rgb '#7c3aed'");
+plot.cmd("set label 13 'pinned-pinned' at 6.5, -142 font ',10' tc rgb '#0d9488'");
+plot.cmd("plot 'build/bar_spec_ff.csv' u ($1/f1ff):(max(-60,$3-pkff)) w l lw 1.6 lc rgb '#dc2626' notitle, 'build/bar_spec_cf.csv' u ($1/f1cf):(max(-60,$3-pkcf)-65) w l lw 1.4 lc rgb '#7c3aed' notitle, 'build/bar_spec_pp.csv' u ($1/f1pp):(max(-60,$3-pkpp)-130) w l lw 1.4 lc rgb '#0d9488' notitle");
+plot.cmd("unset multiplot");
+plot.close();
+end _dsl_
+savedsl(p, "build/xylophone_bar_modes-plot.dslb");
+r3 = system ${dsl_cli(p)} --dsl build/xylophone_bar_modes-plot.dslb;
+if (r3.code != 0) { println(r3.stderr); }
+assert(r3.code == 0);
+println("wrote images/xylophone_bar_modes.png and audio/xylophone_bar_modes.wav");

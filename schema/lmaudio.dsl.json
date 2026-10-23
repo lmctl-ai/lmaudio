@@ -402,6 +402,32 @@
             "returns": "void"
           }
         ],
+        "cents": [
+          {
+            "params": [
+              "float",
+              "float"
+            ],
+            "returns": "float"
+          }
+        ],
+        "db": [
+          {
+            "params": [
+              "float"
+            ],
+            "returns": "float"
+          }
+        ],
+        "save_text": [
+          {
+            "params": [
+              "string",
+              "string"
+            ],
+            "returns": "void"
+          }
+        ],
         "karplus": [
           {
             "params": [
@@ -1180,6 +1206,15 @@
           {
             "params": [],
             "returns": "int"
+          }
+        ],
+        "peak_freq_in": [
+          {
+            "params": [
+              "float",
+              "float"
+            ],
+            "returns": "float"
           }
         ],
         "peak_freq": [

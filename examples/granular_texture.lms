@@ -1,0 +1,112 @@
+# Granular time-stretch: a 1-second guitar arpeggio becomes a 3.4-second ambient texture without
+# changing its pitch.
+# Buffer.granular(out_dur, grain_s, density, position, pos_spread_s, pitch_spread_semitones,
+# seed) scatters Hann-windowed grains read around one position of the source. Moving the read
+# position slowly from start to end while writing 3.4 times longer stretches time; every grain
+# still plays at the original speed, so the pitch stays (asserted: the texture over the first
+# note still reads E4 = 329.6 Hz). A small random detune (+/-0.15 semitone) adds a chorus-like
+# shimmer. Grain clouds are deterministic for a given seed (asserted).
+# Writes images/granular_texture.png and audio/granular_texture.wav.
+mkdir("build");
+mkdir("build/rendered");
+mkdir("images");
+mkdir("audio");
+
+a = _dsl_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+let sr = 22050;
+let src = audio.sequence("E4:0.5 G4:0.5 B4:0.5 E5:0.5", 120.0, "karplus", sr).normalize(0.9);
+let n_seg = 16;
+let seg_len = 0.4;
+let hop = 0.2;
+let cloud = audio.silence(hop * float(n_seg) + seg_len - hop, sr);
+for (i in range(0, n_seg)) {
+  # Read position walks through the source (0.03 .. 0.95), output advances 0.2 s per step.
+  let pos = 0.03 + 0.92 * float(i) / float(n_seg - 1);
+  let seg = src.granular(seg_len, 0.09, 70.0, pos, 0.02, 0.15, 100 + i).fade(0.12, 0.12);
+  cloud = cloud.mix(seg, 1.0, hop * float(i));
+}
+cloud = cloud.normalize(0.85);
+audio.print("source " + str(src.duration()) + " s -> texture " + str(cloud.duration()) + " s (" + str(cloud.duration() / src.duration()) + "x), same pitch");
+
+# Pitch preserved: the texture made from the first note still sounds E4.
+let first = src.granular(0.6, 0.09, 70.0, 0.1, 0.02, 0.0, 1);
+audio.assert_close(first.spectrum("hann", 32768).peak_freq_in(250.0, 420.0), audio.note_freq("E4"), 1.5);
+audio.assert_close(src.slice(0.0, 0.22).spectrum("hann", 32768).peak_freq_in(250.0, 420.0), audio.note_freq("E4"), 0.5);
+# Deterministic: same seed, same grains.
+audio.assert_close(first.snr_db(src.granular(0.6, 0.09, 70.0, 0.1, 0.02, 0.0, 1)), 240.0, 0.1);
+
+src.save_csv("build/gr_src.csv", 2000);
+cloud.save_csv("build/gr_cloud.csv", 4000);
+src.spectrogram(1024, 128, "hann", 1500.0).save_csv("build/gr_src_sg.csv", -80.0);
+cloud.spectrogram(1024, 128, "hann", 1500.0).save_csv("build/gr_cloud_sg.csv", -80.0);
+src.concat(audio.silence(0.1, sr)).concat(cloud.slice(0.0, 3.25).fade(0.0, 0.3)).save_wav("audio/granular_texture.wav", 16);
+end _dsl_
+savedsl(a, "build/granular_texture.dslb");
+r1 = system ${dsl_cli(a)} --dsl build/granular_texture.dslb;
+for (l in lines(r1.stdout)) { if (!starts_with(l, "{")) { println(l); } }
+if (r1.code != 0) { println(r1.stderr); }
+assert(r1.code == 0);
+
+# How grains are taken from the source and laid out in the output.
+d = _dsl_ cli="lmdraw" install="github:lmctl-ai/lmdraw@latest";
+scene.canvas(940, 190, "#ffffff");
+scene.text(20.0, 40.0, 13.0, "source (1 s)", "#0f172a");
+scene.rect(150.0, 24.0, 290.0, 26.0, "#e0f2fe").set_attr("stroke", "#0369a1");
+scene.text(20.0, 150.0, 13.0, "texture (3.4 s)", "#0f172a");
+scene.rect(150.0, 134.0, 760.0, 26.0, "#fef3c7").set_attr("stroke", "#b45309");
+for (i in range(0, 8)) {
+  let sx = 160.0 + float(i) * 37.0;
+  let ox = 160.0 + float(i) * 96.0;
+  scene.path("M " + str(sx) + " 50 Q " + str(sx + 11.0) + " 20 " + str(sx + 22.0) + " 50", "none", "#0369a1", 2.0);
+  scene.line(sx + 11.0, 52.0, ox + 30.0, 132.0, "#94a3b8", 1.0).set_attr("stroke-dasharray", "4 3");
+  scene.path("M " + str(ox) + " 160 Q " + str(ox + 30.0) + " 110 " + str(ox + 60.0) + " 160", "none", "#b45309", 2.0);
+}
+scene.text(470.0, 92.0, 12.0, "read position creeps forward slowly, grains are written 3.4x farther apart; each grain keeps its speed, so pitch is unchanged", "#475569").set_attr("text-anchor", "middle");
+scene.text(470.0, 184.0, 11.0, "Hann-windowed grains, 90 ms, 70 per second, overlapping (only 1 in 9 drawn)", "#475569").set_attr("text-anchor", "middle");
+scene.render_png("build/rendered/gr_map.png", 940, 190, 2);
+end _dsl_
+savedsl(d, "build/granular_texture-diagram.dslb");
+r2 = system ${dsl_cli(d)} --dsl build/granular_texture-diagram.dslb;
+if (r2.code != 0) { println(r2.stderr); }
+assert(r2.code == 0);
+
+p = _dsl_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+plot.png("images/granular_texture.png", 980, 720);
+plot.cmd("set encoding utf8");
+plot.cmd("set datafile separator ','");
+plot.cmd("set multiplot");
+plot.cmd("set label 99 'Granular time-stretch: 1 s of guitar becomes 3.4 s of texture at the same pitch' at screen 0.5, 0.97 center font ',14'");
+plot.cmd("set pixmap 1 'build/rendered/gr_map.png' at screen 0.07, 0.712 width screen 0.86");
+plot.cmd("set palette defined (0 '#0b1026', 0.3 '#3b0f70', 0.55 '#b5367a', 0.8 '#fb8861', 1 '#fcfdbf')");
+plot.cmd("set cbrange [-80:0]; unset colorbox");
+
+plot.script("set lmargin at screen 0.08\nset rmargin at screen 0.33\nset tmargin at screen 0.655\nset bmargin at screen 0.40");
+plot.cmd("set title 'Source spectrogram' font ',11'");
+plot.cmd("set xlabel ''; set ylabel 'frequency (Hz)'; set xrange [0:1]; set yrange [0:1500]; set ytics 300");
+plot.cmd("set pm3d map");
+plot.cmd("splot 'build/gr_src_sg.csv' u 1:2:3 notitle");
+plot.cmd("unset pixmap 1");
+
+plot.script("set lmargin at screen 0.38\nset rmargin at screen 0.97\nset tmargin at screen 0.655\nset bmargin at screen 0.40");
+plot.cmd("set title 'Texture spectrogram: same notes (E4 G4 B4 E5), 3.4x longer' font ',11'");
+plot.cmd("set ylabel ''; set xrange [0:3.4]; set format y ''");
+plot.cmd("splot 'build/gr_cloud_sg.csv' u 1:2:3 notitle");
+plot.cmd("unset pm3d; set format y '%g'");
+
+plot.script("set lmargin at screen 0.08\nset rmargin at screen 0.33\nset tmargin at screen 0.28\nset bmargin at screen 0.08");
+plot.cmd("set title 'Source waveform' font ',11'");
+plot.cmd("set xlabel 'time (s)'; set ylabel 'amplitude'; set xrange [0:1]; set yrange [-1:1]; set ytics 0.5");
+plot.cmd("plot 'build/gr_src.csv' u 1:2 w l lw 0.8 lc rgb '#0369a1' notitle");
+
+plot.script("set lmargin at screen 0.38\nset rmargin at screen 0.97\nset tmargin at screen 0.28\nset bmargin at screen 0.08");
+plot.cmd("set title 'Texture waveform: plucks smeared into a continuous swell' font ',11'");
+plot.cmd("set ylabel ''; set xrange [0:3.4]; set format y ''");
+plot.cmd("plot 'build/gr_cloud.csv' u 1:2 w l lw 0.6 lc rgb '#b45309' notitle");
+plot.cmd("unset multiplot");
+plot.close();
+end _dsl_
+savedsl(p, "build/granular_texture-plot.dslb");
+r3 = system ${dsl_cli(p)} --dsl build/granular_texture-plot.dslb;
+if (r3.code != 0) { println(r3.stderr); }
+assert(r3.code == 0);
+println("wrote images/granular_texture.png and audio/granular_texture.wav");

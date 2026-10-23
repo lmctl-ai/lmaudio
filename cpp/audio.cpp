@@ -473,6 +473,27 @@ double Spectrum::peak_freq() const {
   return (double(k) + delta) * double(sr) / double(nfft);
 }
 
+// Strongest bin inside [fmin, fmax], refined by a parabola through the log magnitudes.
+double Spectrum::peak_freq_in(double fmin, double fmax) const {
+  check_finite(fmin, "fmin");
+  check_finite(fmax, "fmax");
+  if (fmin < 0.0 || fmax <= fmin || fmax > double(sr) * 0.5)
+    fail("Spectrum.peak_freq_in: need 0 <= fmin < fmax <= Nyquist");
+  int64_t k0 = std::max<int64_t>(1, static_cast<int64_t>(std::ceil(fmin * double(nfft) / double(sr))));
+  int64_t k1 = std::min<int64_t>(bins() - 1, static_cast<int64_t>(std::floor(fmax * double(nfft) / double(sr))));
+  if (k1 < k0) fail("Spectrum.peak_freq_in: the range holds no FFT bin (raise nfft or widen the range)");
+  int64_t k = k0;
+  for (int64_t i = k0 + 1; i <= k1; i++)
+    if (mag_at(i) > mag_at(k)) k = i;
+  if (k <= 0 || k >= bins() - 1) return freq_at(k);
+  double m0 = std::log(std::max(mag_at(k - 1), 1e-15));
+  double m1 = std::log(std::max(mag_at(k), 1e-15));
+  double m2 = std::log(std::max(mag_at(k + 1), 1e-15));
+  double denom = m0 - 2.0 * m1 + m2;
+  double delta = (std::abs(denom) > 1e-12) ? std::clamp(0.5 * (m0 - m2) / denom, -0.5, 0.5) : 0.0;
+  return (double(k) + delta) * double(sr) / double(nfft);
+}
+
 double Spectrum::peak_mag() const { return mag_at(peak_bin()); }
 
 double Spectrum::centroid() const {
@@ -891,6 +912,27 @@ Buffer make_bar(int64_t bc_left, int64_t bc_right, double stiffness, double deca
       u1[j] = dt * w;
     }
   }
+  // Remove rigid-body motion from the strike (a bar resting on cords does not fly away): project
+  // out translation and rotation for free-free, rotation about the pin for pinned-free.
+  auto remove_mode = [&](const std::vector<double> &m) {
+    double num = 0.0, den = 0.0;
+    for (int j = 0; j <= N; j++) {
+      num += u1[j] * m[j];
+      den += m[j] * m[j];
+    }
+    if (den > 0.0)
+      for (int j = 0; j <= N; j++) u1[j] -= num / den * m[j];
+  };
+  if (bc_left == 3 && bc_right == 3) {
+    std::vector<double> one(N + 1, 1.0), lin(N + 1);
+    for (int j = 0; j <= N; j++) lin[j] = double(j) / double(N) - 0.5;  // orthogonal to `one`
+    remove_mode(one);
+    remove_mode(lin);
+  } else if ((bc_left == 2 && bc_right == 3) || (bc_left == 3 && bc_right == 2)) {
+    std::vector<double> rot(N + 1);
+    for (int j = 0; j <= N; j++) rot[j] = (bc_left == 2) ? double(j) : double(N - j);
+    remove_mode(rot);
+  }
   int readout = std::clamp(static_cast<int>(std::llround(0.71 * N)), 2, N - 2);
   float *p = b.chan_ptr(0);
   float max_abs = 0.0f;
@@ -933,6 +975,20 @@ Buffer make_bar(int64_t bc_left, int64_t bc_right, double stiffness, double deca
     max_abs = std::max(max_abs, std::abs(sample));
     std::swap(u2, u1);
     std::swap(u1, u0);
+  }
+  // A free end lets the struck bar translate and rotate as a rigid body; that motion shows up
+  // as a DC offset in the velocity read-out. Remove it with a 5 Hz DC blocker before scaling.
+  {
+    double r = 1.0 - kTwoPi * 5.0 / double(sr), x1 = 0.0, y1 = 0.0;
+    max_abs = 0.0f;
+    for (int64_t i = 0; i < b.frames; i++) {
+      double x = p[i];
+      double y = x - x1 + r * y1;
+      x1 = x;
+      y1 = y;
+      p[i] = static_cast<float>(y);
+      max_abs = std::max(max_abs, std::abs(p[i]));
+    }
   }
   if (max_abs > 1e-12f) {
     float scale = static_cast<float>(amp) / max_abs;
@@ -1066,6 +1122,9 @@ Buffer render_single_note(double freq, double dur, const std::string &inst, int6
   } else if (inst == "modal" || inst == "bell") {
     b = make_modal(freq, dur, 0.75, 0.45, 0.65, 0.75, sr);
     b = apply_fade(b, 0.001, std::min(0.025, dur * 0.15), "cosine");
+  } else if (inst == "karplus" || inst == "string") {
+    b = make_karplus(freq, dur, 0.75, 1.2, 7, sr);
+    b = apply_fade(b, 0.0, std::min(0.02, dur * 0.15), "cosine");
   } else if (inst == "pad") {
     Buffer s1 = make_saw(freq * 0.997, dur, 0.35, sr);
     Buffer s2 = make_saw(freq * 1.003, dur, 0.35, sr);
@@ -1073,7 +1132,7 @@ Buffer render_single_note(double freq, double dur, const std::string &inst, int6
     b = apply_ladder(b, std::min(freq * 3.0, double(sr) * 0.42), 0.2, 1.0, "lp24");
     b = apply_adsr(b, std::min(0.08, dur * 0.3), std::min(0.15, dur * 0.3), 0.8, std::min(0.15, dur * 0.35), 0.0);
   } else {
-    fail("unknown sequence instrument '" + inst + "' (expected sine, saw, square, triangle, fm, pluck, modal, or pad)");
+    fail("unknown sequence instrument '" + inst + "' (expected sine, saw, square, triangle, fm, pluck, karplus, modal, or pad)");
   }
   return b;
 }
@@ -2189,6 +2248,44 @@ double compute_pitch(const Buffer &buf, double fmin, double fmax, int64_t ch) {
       refined_tau += std::clamp(delta, -0.5, 0.5);
     }
   }
+  // Short periods (< 64 samples): a three-point parabola through d(tau) is biased for harmonic-rich
+  // tones (a 1175 Hz plucked string at 22.05 kHz read 8 cents flat). Re-measure d on a band-limited
+  // upsampled copy so the parabola spans a fraction of a sample.
+  if (best_tau < 64) {
+    int64_t up = std::min<int64_t>((128 + best_tau - 1) / best_tau, 384000 / buf.sr);
+    if (up >= 2) {
+      int64_t seg = std::min<int64_t>(W + tau_max + 2, buf.frames - best_start);
+      Buffer piece(buf.sr, 1, seg);
+      std::memcpy(piece.chan_ptr(0), x, std::size_t(seg) * sizeof(float));
+      Buffer hi = apply_resample(piece, buf.sr * up);
+      const float *xu = hi.chan_ptr(0);
+      int64_t wu = W * up;
+      int64_t centre = static_cast<int64_t>(std::llround(refined_tau * double(up)));
+      auto du = [&](int64_t tau) {
+        double acc = 0.0;
+        for (int64_t j = 0; j < wu; j++) {
+          double delta = double(xu[j]) - double(xu[j + tau]);
+          acc += delta * delta;
+        }
+        return acc;
+      };
+      if (centre - up >= 1 && centre + up + wu < hi.frames) {
+        int64_t best_u = centre;
+        double best_d = du(centre);
+        for (int64_t tau = centre - up; tau <= centre + up; tau++) {
+          double v = du(tau);
+          if (v < best_d) {
+            best_d = v;
+            best_u = tau;
+          }
+        }
+        double y0 = du(best_u - 1), y1 = best_d, y2 = du(best_u + 1);
+        double denom = 2.0 * (y0 - 2.0 * y1 + y2);
+        double delta = (std::abs(denom) > 1e-15) ? std::clamp((y0 - y2) / denom, -0.5, 0.5) : 0.0;
+        refined_tau = (double(best_u) + delta) / double(up);
+      }
+    }
+  }
   return std::clamp(double(buf.sr) / refined_tau, fmin, fmax);
 }
 
@@ -2367,7 +2464,11 @@ Buffer make_karplus(double freq, double duration, double amp, double t60, int64_
   double period = double(sr) / freq;
   int64_t n = static_cast<int64_t>(std::floor(period - 0.6));
   double d = period - 0.5 - double(n);  // allpass delay at low frequency, in [0.1, 1.1)
-  double c_ap = (1.0 - d) / (1.0 + d);
+  // Allpass (C + z^-1)/(1 + C z^-1) with phase delay exactly d at the fundamental w0:
+  // C = sin(w0 (1 - d) / 2) / sin(w0 (1 + d) / 2)  (the low-frequency formula (1-d)/(1+d) runs flat
+  // by up to 10 cents in the top octave at 22.05 kHz).
+  double w0 = kTwoPi * freq / double(sr);
+  double c_ap = std::sin(w0 * (1.0 - d) * 0.5) / std::sin(w0 * (1.0 + d) * 0.5);
   double avg_gain = std::max(std::cos(kPi * freq / double(sr)), 1e-3);
   double g = std::min(0.99999, std::pow(10.0, -3.0 / (freq * t60)) / avg_gain);
   std::vector<double> line(static_cast<std::size_t>(n), 0.0);
@@ -2726,6 +2827,20 @@ double compute_rt60(const Buffer &buf, int64_t ch) {
   double slope = (n * sxy - sx * sy) / (n * sxx - sx * sx);
   if (!(slope < 0.0)) fail("rt60: decay slope is not negative");
   return -60.0 / slope;
+}
+
+// Writes a text file (e.g. a CSV table built in the script) for a plotting host to read.
+void save_text(const std::string &path, const std::string &text, bool dry_run) {
+  if (path.empty()) fail("save_text: empty path");
+  if (dry_run) {
+    std::cerr << "lmaudio: --dry-run: would write " << path << "\n";
+    return;
+  }
+  ensure_parent_dir(path);
+  std::ofstream out(path, std::ios::binary);
+  if (!out) fail("cannot write '" + path + "'");
+  out << text;
+  finish_write(out, path);
 }
 
 // Frame-by-frame YIN pitch track written as CSV: t_sec,f0_hz,rms_db (f0 = 0 when unvoiced/silent).
