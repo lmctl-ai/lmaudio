@@ -1,6 +1,6 @@
 # WAV 16/24/32f round-trip accuracy, stereo constant-power panning, and buffer editing/resampling.
 out = ARGV.len() > 0 ? ARGV[0] : "build/wav_and_editing.dslb";
-p = _dsl_ cli="lmaudio";
+p = _dsl_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
 let orig = audio.sine(440.0, 0.25, 0.75, 22050).fade(0.01, 0.02);
 
 # WAV round-trip: 16-bit, 24-bit, and 32-bit IEEE float
@@ -42,6 +42,12 @@ audio.assert_close(norm_pk.peak(), 0.5, 0.0002);
 
 let norm_r = orig.normalize_rms(0.2);
 audio.assert_close(norm_r.rms(), 0.2, 0.0002);
+
+# Multi-channel normalize_rms: hard-right panned signal has channel 0 silent and channel 1 active;
+# combined RMS across both channels must equal target_rms (channel 1 RMS = target_rms * sqrt(2)).
+let panned_right = orig.pan(1.0).normalize_rms(0.25);
+audio.assert_close(panned_right.rms(0), 0.0, 0.0001);
+audio.assert_close(panned_right.rms(1), 0.25 * 1.41421356237, 0.0005);
 
 let cat = orig.concat(orig.reverse());
 audio.assert_close(cat.duration(), orig.duration() * 2.0, 0.0002);

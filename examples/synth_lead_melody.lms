@@ -1,0 +1,68 @@
+# Polyphonic Synthwave Lead Melody, Arpeggiated Bassline & Chord Progression from Note Strings:
+# Uses audio.sequence() with "saw", "square", and "pluck" voices, Moog ladder filter, chorus, and FDN reverb.
+mkdir("build");
+mkdir("audio");
+mkdir("images");
+
+a = _dsl_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+let sr = 22050;
+let bpm = 128.0;
+
+# Lead synth melody from a note string (8 beats at 128 BPM = 3.75 s)
+let lead_raw = audio.sequence(
+  "A4:0.75 C5:0.25 E5:0.5 D5:0.5 C5:0.5 B4:0.5 G4:1.0 F4:0.75 A4:0.25 C5:0.5 E5:0.5 G5:0.75 E5:0.25 A4:1.0",
+  bpm, "saw", sr
+);
+let lead = lead_raw.ladder(3400.0, 0.25, 1.3, "lp24").chorus(1.4, 0.45, 0.15, 0.35).reverb(0.78, 6500.0, 0.28);
+
+# Driving eighth-note bassline on square wave filtered through 24 dB/oct Moog ladder
+let bass_raw = audio.sequence(
+  "A2:0.5 A2:0.5 A3:0.5 A2:0.5 G2:0.5 G2:0.5 G3:0.5 G2:0.5 F2:0.5 F2:0.5 F3:0.5 F2:0.5 E2:0.5 E2:0.5 E3:0.5 E2:0.5",
+  bpm, "square", sr
+);
+let bass = bass_raw.ladder(680.0, 0.35, 1.5, "lp24");
+
+# Warm block chord progression (Am -> G -> F -> E7)
+let chords = audio.sequence(
+  "A3+C4+E4:2.0 G3+B3+D4:2.0 F3+A3+C4:2.0 E3+G#3+B3+D4:2.0",
+  bpm, "triangle", sr
+).chorus(0.9, 0.5, 0.2, 0.4);
+
+# Verify first lead note pitch (A4 = 440 Hz)
+audio.assert_close(lead_raw.slice(0.04, 0.28).pitch(150.0, 1200.0), 440.0, 4.0);
+
+let mix_mono = lead.gain(0.75).mix(bass, 0.65).mix(chords, 0.55).reverb(0.75, 5800.0, 0.20).normalize(0.92);
+mix_mono.save_wav("audio/synth_lead_melody.wav", 16);
+mix_mono.save_csv("build/synth_melody_wave.csv", 1800);
+lead.save_csv("build/synth_lead_only.csv", 1800);
+bass.save_csv("build/synth_bass_only.csv", 1800);
+
+let sg = mix_mono.spectrogram(512, 128, "hann", 4200.0);
+sg.save_csv("build/synth_melody_sgram.csv", -78.0);
+end _dsl_
+savedsl(a, "build/synth_lead_melody.dslb");
+r1 = system ${dsl_cli(a)} --dsl build/synth_lead_melody.dslb;
+assert(r1.code == 0);
+
+draw = _dsl_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+plot.png("images/synth_lead_melody.png", 980, 640);
+plot.cmd("set datafile separator ','");
+plot.cmd("set multiplot layout 2,1 title 'Synth Melody, Arpeggiated Bassline and Chords from Note Strings (128 BPM, Am-G-F-E7)' font ',13'");
+plot.cmd("set border 3; set tics nomirror; set grid lc rgb '#e0e0e0'");
+
+plot.cmd("set title 'Voice Envelopes: Lead Melody (Saw + Chorus), Moog Bassline (Square + LP24), Full Mix' font ',11'; set xlabel 'Time (s)'; set ylabel 'Amplitude'");
+plot.cmd("set xrange [0:3.75]; set yrange [-1.05:1.05]; set key top right box opaque");
+plot.cmd("plot 'build/synth_melody_wave.csv' u 1:2 w l lw 1.4 lc rgb '#1f77b4' t 'Full Arrangement Mix', 'build/synth_lead_only.csv' u 1:2 w l lw 1.2 lc rgb '#d62728' t 'Lead Melody (A4-C5-E5...)', 'build/synth_bass_only.csv' u 1:2 w l lw 1.1 lc rgb '#2ca02c' t 'Octave Bassline'");
+
+plot.cmd("set title 'STFT Spectrogram of Note-String Arrangement (Fundamentals + Overtones)' font ',11'; set xlabel 'Time (s)'; set ylabel 'Frequency (Hz)'");
+plot.cmd("set xrange [0:3.75]; set yrange [0:4000]; set cbrange [-72:0]; set cblabel 'dB'");
+plot.cmd("set pm3d map; set palette defined (0 '#081d58', 0.25 '#225ea8', 0.5 '#41b6c4', 0.75 '#fed976', 1 '#bd0026')");
+plot.cmd("splot 'build/synth_melody_sgram.csv' u 1:2:3 notitle");
+
+plot.cmd("unset multiplot");
+plot.close();
+end _dsl_
+savedsl(draw, "build/synth_lead_melody-draw.dslb");
+r2 = system ${dsl_cli(draw)} --dsl build/synth_lead_melody-draw.dslb;
+assert(r2.code == 0);
+print("wrote images/synth_lead_melody.png and audio/synth_lead_melody.wav");

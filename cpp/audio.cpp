@@ -38,9 +38,22 @@ void check_finite(double v, const char *name) {
   if (!std::isfinite(v)) fail(std::string(name) + " must be finite");
 }
 
+void check_unit_range(double v, const char *name) {
+  check_finite(v, name);
+  if (v < 0.0 || v > 1.0)
+    fail(std::string(name) + " must be in [0, 1] (got " + std::to_string(v) + ")");
+}
+
 void check_sr(int64_t sr) {
   if (sr < 100 || sr > 384000)
     fail("sample rate must be in [100, 384000] Hz (got " + std::to_string(sr) + ")");
+}
+
+int64_t sec_to_frames_checked(double sec, int64_t sr, const char *name, double min_sec = 0.0, double max_sec = 3600.0) {
+  check_finite(sec, name);
+  if (sec < min_sec || sec > max_sec)
+    fail(std::string(name) + " must be in [" + std::to_string(min_sec) + ", " + std::to_string(max_sec) + "] seconds (got " + std::to_string(sec) + ")");
+  return static_cast<int64_t>(std::llround(sec * double(sr)));
 }
 
 int64_t calc_frames(int64_t sr, double duration) {
@@ -67,6 +80,13 @@ void ensure_parent_dir(const std::string &path) {
   }
 }
 
+void finish_write(std::ofstream &out, const std::string &path) {
+  out.flush();
+  if (!out) fail("write failed for '" + path + "'");
+  out.close();
+  if (out.fail()) fail("close failed for '" + path + "'");
+}
+
 // Deterministic xorshift64* PRNG for repeatable synthesis.
 struct Rng {
   uint64_t s;
@@ -89,13 +109,21 @@ struct Rng {
 
 struct SpGuard {
   sp_data *sp = nullptr;
+  std::size_t charged = 0;
   explicit SpGuard(int sr, uint32_t seed = 12345) {
+    membudget::charge(sizeof(sp_data));
+    charged = sizeof(sp_data);
     sp_create(&sp);
     sp->sr = sr;
     sp_srand(sp, seed);
   }
+  void charge_extra(std::size_t bytes) {
+    membudget::charge(bytes);
+    charged += bytes;
+  }
   ~SpGuard() {
     if (sp) sp_destroy(&sp);
+    if (charged > 0) membudget::release(charged);
   }
 };
 
@@ -223,6 +251,8 @@ double Biquad::db_at(double freq_hz) const {
 
 double Biquad::phase_deg_at(double freq_hz) const {
   check_finite(freq_hz, "freq_hz");
+  if (freq_hz < 0.0 || freq_hz > double(sr) * 0.5)
+    fail("frequency " + std::to_string(freq_hz) + " Hz outside [0, Nyquist=" + std::to_string(sr / 2) + "]");
   double w = kTwoPi * freq_hz / double(sr);
   std::complex<double> z1(std::cos(-w), std::sin(-w));
   std::complex<double> z2(std::cos(-2.0 * w), std::sin(-2.0 * w));
@@ -234,8 +264,11 @@ double Biquad::phase_deg_at(double freq_hz) const {
 void Biquad::save_response_csv(const std::string &path, int64_t points, double fmin, double fmax, bool dry_run) const {
   if (path.empty()) fail("save_response_csv: empty path");
   if (points < 2 || points > 1000000) fail("save_response_csv: points must be in [2, 1000000]");
+  check_finite(fmin, "fmin");
+  check_finite(fmax, "fmax");
   double nyq = double(sr) * 0.5;
-  if (fmax <= 0.0 || fmax > nyq) fmax = nyq;
+  if (fmax == 0.0) fmax = nyq;
+  if (fmax <= 0.0 || fmax > nyq) fail("save_response_csv: fmax must be in (0, Nyquist]");
   if (fmin <= 0.0 || fmin >= fmax) fail("save_response_csv: invalid frequency range");
   if (dry_run) {
     std::cerr << "lmaudio: --dry-run: would write " << path << "\n";
@@ -253,6 +286,7 @@ void Biquad::save_response_csv(const std::string &path, int64_t points, double f
     if (f > nyq) f = nyq;
     out << f << "," << gain_at(f) << "," << db_at(f) << "," << phase_deg_at(f) << "\n";
   }
+  finish_write(out, path);
 }
 
 Biquad design_biquad(const std::string &kind, double freq, double q, double db_gain, int64_t sr) {
@@ -262,7 +296,9 @@ Biquad design_biquad(const std::string &kind, double freq, double q, double db_g
   check_finite(db_gain, "db_gain");
   if (freq <= 0.0 || freq >= double(sr) * 0.5)
     fail("biquad cutoff frequency " + std::to_string(freq) + " Hz must be in (0, " + std::to_string(sr * 0.5) + ")");
-  if (q <= 0.0) fail("biquad Q must be > 0 (got " + std::to_string(q) + ")");
+  if (q <= 0.0 || q > 1000.0) fail("biquad Q must be in (0, 1000] (got " + std::to_string(q) + ")");
+  if (db_gain < -120.0 || db_gain > 120.0)
+    fail("biquad db_gain must be in [-120, 120] dB (got " + std::to_string(db_gain) + ")");
 
   double w0 = kTwoPi * freq / double(sr);
   double cosw = std::cos(w0);
@@ -448,7 +484,10 @@ double Spectrum::parseval_energy() const {
 
 void Spectrum::save_csv(const std::string &path, double max_freq, bool dry_run) const {
   if (path.empty()) fail("Spectrum.save_csv: empty path");
-  double limit = (max_freq > 0.0) ? std::min(max_freq, double(sr) * 0.5) : (double(sr) * 0.5);
+  check_finite(max_freq, "max_freq");
+  if (max_freq < 0.0 || max_freq > double(sr) * 0.5)
+    fail("Spectrum.save_csv: max_freq must be in [0, Nyquist]");
+  double limit = (max_freq > 0.0) ? max_freq : (double(sr) * 0.5);
   if (dry_run) {
     std::cerr << "lmaudio: --dry-run: would write " << path << "\n";
     return;
@@ -463,6 +502,7 @@ void Spectrum::save_csv(const std::string &path, double max_freq, bool dry_run) 
     if (f > limit) break;
     out << f << "," << mag_at(k) << "," << db_at(k) << "," << phase_at(k) << "\n";
   }
+  finish_write(out, path);
 }
 
 // --- Spectrogram ---
@@ -514,6 +554,7 @@ double Spectrogram::ridge_freq(int64_t frame) const {
 
 void Spectrogram::save_csv(const std::string &path, double floor_db, bool dry_run) const {
   if (path.empty()) fail("Spectrogram.save_csv: empty path");
+  check_finite(floor_db, "floor_db");
   if (dry_run) {
     std::cerr << "lmaudio: --dry-run: would write " << path << "\n";
     return;
@@ -531,6 +572,7 @@ void Spectrogram::save_csv(const std::string &path, double floor_db, bool dry_ru
     }
     out << "\n";
   }
+  finish_write(out, path);
 }
 
 // --- Synthesis ---
@@ -655,10 +697,10 @@ Buffer make_chirp(double f0, double f1, double duration, double amp, const std::
 }
 
 Buffer make_impulse(double duration, double offset_sec, double amp, int64_t sr) {
-  check_finite(offset_sec, "offset_sec");
+  check_sr(sr);
   check_finite(amp, "amp");
   Buffer b(static_cast<int>(sr), 1, calc_frames(sr, duration));
-  int64_t idx = static_cast<int64_t>(std::llround(offset_sec * double(sr)));
+  int64_t idx = sec_to_frames_checked(offset_sec, sr, "impulse offset_sec", 0.0, duration);
   if (idx < 0 || idx >= b.frames)
     fail("impulse offset_sec " + std::to_string(offset_sec) + " outside buffer duration");
   b.at(idx, 0) = static_cast<float>(amp);
@@ -744,8 +786,8 @@ Buffer make_pluck(double freq, double duration, double amp, double brightness, d
   check_sr(sr);
   check_finite(freq, "freq");
   check_finite(amp, "amp");
-  check_finite(brightness, "brightness");
-  check_finite(damping, "damping");
+  check_unit_range(brightness, "pluck brightness");
+  check_unit_range(damping, "pluck damping");
   if (freq < 20.0 || freq >= double(sr) * 0.45)
     fail("pluck frequency " + std::to_string(freq) + " Hz must be in [20, 0.45*sr)");
   std::srand(12345);
@@ -754,8 +796,8 @@ Buffer make_pluck(double freq, double duration, double amp, double brightness, d
   sv.Init(static_cast<float>(sr));
   sv.SetFreq(static_cast<float>(freq));
   sv.SetStructure(0.25f);  // linear bridge (zero pitch shift nonlinearity)
-  sv.SetBrightness(static_cast<float>(std::clamp(brightness, 0.0, 1.0)));
-  sv.SetDamping(static_cast<float>(std::clamp(damping, 0.0, 1.0)));
+  sv.SetBrightness(static_cast<float>(brightness));
+  sv.SetDamping(static_cast<float>(damping));
   sv.SetAccent(0.85f);
   float *p = b.chan_ptr(0);
   float max_abs = 0.0f;
@@ -774,9 +816,9 @@ Buffer make_modal(double freq, double duration, double amp, double structure, do
   check_sr(sr);
   check_finite(freq, "freq");
   check_finite(amp, "amp");
-  check_finite(structure, "structure");
-  check_finite(brightness, "brightness");
-  check_finite(damping, "damping");
+  check_unit_range(structure, "modal structure");
+  check_unit_range(brightness, "modal brightness");
+  check_unit_range(damping, "modal damping");
   if (freq < 20.0 || freq >= double(sr) * 0.45)
     fail("modal frequency " + std::to_string(freq) + " Hz must be in [20, 0.45*sr)");
   std::srand(12345);
@@ -784,9 +826,9 @@ Buffer make_modal(double freq, double duration, double amp, double structure, do
   daisysp::ModalVoice mv;
   mv.Init(static_cast<float>(sr));
   mv.SetFreq(static_cast<float>(freq));
-  mv.SetStructure(static_cast<float>(std::clamp(structure, 0.0, 1.0)));
-  mv.SetBrightness(static_cast<float>(std::clamp(brightness, 0.0, 1.0)));
-  mv.SetDamping(static_cast<float>(std::clamp(damping, 0.0, 1.0)));
+  mv.SetStructure(static_cast<float>(structure));
+  mv.SetBrightness(static_cast<float>(brightness));
+  mv.SetDamping(static_cast<float>(damping));
   mv.SetAccent(0.8f);
   float *p = b.chan_ptr(0);
   float max_abs = 0.0f;
@@ -801,6 +843,8 @@ Buffer make_modal(double freq, double duration, double amp, double structure, do
   return b;
 }
 
+// Clean-room MIT 4th-order Euler-Bernoulli finite-difference bar model
+// (Bilbao 2009, Numerical Sound Synthesis, Ch. 7: u_tt = -kappa^2 u_xxxx - 2*s0*u_t + 2*s1*u_txx).
 Buffer make_bar(int64_t bc_left, int64_t bc_right, double stiffness, double decay, double duration, double amp, int64_t sr) {
   check_sr(sr);
   check_finite(stiffness, "stiffness");
@@ -811,24 +855,69 @@ Buffer make_bar(int64_t bc_left, int64_t bc_right, double stiffness, double deca
   if (stiffness <= 0.0 || decay <= 0.0)
     fail("bar stiffness and decay must be > 0");
   Buffer b(static_cast<int>(sr), 1, calc_frames(sr, duration));
-  SpGuard g(static_cast<int>(sr));
-  sp_bar *bar = nullptr;
-  sp_bar_create(&bar);
-  sp_bar_init(g.sp, bar, static_cast<SPFLOAT>(stiffness), 0.001f);
-  bar->bcL = static_cast<SPFLOAT>(bc_left);
-  bar->bcR = static_cast<SPFLOAT>(bc_right);
-  bar->T30 = static_cast<SPFLOAT>(decay);
+  double dt = 1.0 / double(sr);
+  double s0 = 3.0 * std::log(10.0) / decay;
+  double s1 = 0.0005;
+  double h_min = std::sqrt(2.0 * dt * (s1 + std::sqrt(s1 * s1 + stiffness * stiffness)));
+  int N = std::clamp(static_cast<int>(std::floor(1.0 / h_min)), 8, 512);
+  double h = 1.0 / double(N);
+  double mu = (stiffness * dt) / (h * h);
+  double mu2 = mu * mu;
+  double d0 = s0 * dt;
+  double d1 = (2.0 * s1 * dt) / (h * h);
+
+  std::vector<double> u0(N + 1, 0.0), u1(N + 1, 0.0), u2(N + 1, 0.0);
+  // Raised-cosine strike velocity profile around x = 0.28.
+  int center = std::max(2, static_cast<int>(std::llround(0.28 * N)));
+  int width = std::max(2, N / 10);
+  for (int j = 1; j < N; j++) {
+    if (std::abs(j - center) <= width) {
+      double w = 0.5 * (1.0 + std::cos(kPi * double(j - center) / double(width)));
+      u1[j] = dt * w;
+    }
+  }
+  int readout = std::clamp(static_cast<int>(std::llround(0.71 * N)), 2, N - 2);
   float *p = b.chan_ptr(0);
   float max_abs = 0.0f;
-  for (int64_t i = 0; i < b.frames; i++) {
-    SPFLOAT trig = (i == 0) ? 1.0f : 0.0f;
-    SPFLOAT out = 0.0f;
-    sp_bar_compute(g.sp, bar, &trig, &out);
-    p[i] = out;
-    max_abs = std::max(max_abs, std::abs(out));
+
+  auto get_u = [&](const std::vector<double> &u, int idx) -> double {
+    if (idx >= 0 && idx <= N) return u[idx];
+    if (idx == -1) {
+      if (bc_left == 1) return u[1];       // clamped: u_0 = 0, u_{-1} = u_1
+      if (bc_left == 2) return -u[1];      // pivoting: u_0 = 0, u_{-1} = -u_1
+      return 2.0 * u[0] - u[1];            // free
+    }
+    if (idx == N + 1) {
+      if (bc_right == 1) return u[N - 1];
+      if (bc_right == 2) return -u[N - 1];
+      return 2.0 * u[N] - u[N - 1];
+    }
+    return 0.0;
+  };
+
+  for (int64_t n = 0; n < b.frames; n++) {
+    int j_start = (bc_left == 3) ? 0 : 1;
+    int j_end = (bc_right == 3) ? N : (N - 1);
+    for (int j = j_start; j <= j_end; j++) {
+      double u_jm2 = get_u(u1, j - 2);
+      double u_jm1 = get_u(u1, j - 1);
+      double u_j = get_u(u1, j);
+      double u_jp1 = get_u(u1, j + 1);
+      double u_jp2 = get_u(u1, j + 2);
+      double dxxxx = u_jp2 - 4.0 * u_jp1 + 6.0 * u_j - 4.0 * u_jm1 + u_jm2;
+      double dxx1 = u_jp1 - 2.0 * u_j + u_jm1;
+      double dxx2 = get_u(u2, j + 1) - 2.0 * get_u(u2, j) + get_u(u2, j - 1);
+      u0[j] = (2.0 * u_j - (1.0 - d0) * get_u(u2, j) - mu2 * dxxxx + d1 * (dxx1 - dxx2)) / (1.0 + d0);
+    }
+    if (bc_left != 3) u0[0] = 0.0;
+    if (bc_right != 3) u0[N] = 0.0;
+    float sample = static_cast<float>(u0[readout] - u1[readout]);
+    p[n] = sample;
+    max_abs = std::max(max_abs, std::abs(sample));
+    std::swap(u2, u1);
+    std::swap(u1, u0);
   }
-  sp_bar_destroy(&bar);
-  if (max_abs > 1e-7f) {
+  if (max_abs > 1e-12f) {
     float scale = static_cast<float>(amp) / max_abs;
     for (int64_t i = 0; i < b.frames; i++) p[i] *= scale;
   }
@@ -838,9 +927,9 @@ Buffer make_bar(int64_t bc_left, int64_t bc_right, double stiffness, double deca
 Buffer make_drum(const std::string &kind, double freq, double duration, double decay, double tone, double accent, int64_t sr) {
   check_sr(sr);
   check_finite(freq, "freq");
-  check_finite(decay, "decay");
-  check_finite(tone, "tone");
-  check_finite(accent, "accent");
+  check_unit_range(decay, "drum decay");
+  check_unit_range(tone, "drum tone");
+  check_unit_range(accent, "drum accent");
   if (freq <= 10.0 || freq >= double(sr) * 0.45)
     fail("drum frequency must be in (10, 0.45*sr)");
   std::srand(12345);
@@ -850,40 +939,40 @@ Buffer make_drum(const std::string &kind, double freq, double duration, double d
     daisysp::AnalogBassDrum d;
     d.Init(static_cast<float>(sr));
     d.SetFreq(static_cast<float>(freq));
-    d.SetDecay(static_cast<float>(std::clamp(decay, 0.0, 1.0)));
-    d.SetTone(static_cast<float>(std::clamp(tone, 0.0, 1.0)));
-    d.SetAccent(static_cast<float>(std::clamp(accent, 0.0, 1.0)));
+    d.SetDecay(static_cast<float>(decay));
+    d.SetTone(static_cast<float>(tone));
+    d.SetAccent(static_cast<float>(accent));
     for (int64_t i = 0; i < b.frames; i++) p[i] = d.Process(i == 0);
   } else if (kind == "synth_kick") {
     daisysp::SyntheticBassDrum d;
     d.Init(static_cast<float>(sr));
     d.SetFreq(static_cast<float>(freq));
-    d.SetDecay(static_cast<float>(std::clamp(decay, 0.0, 1.0)));
-    d.SetTone(static_cast<float>(std::clamp(tone, 0.0, 1.0)));
-    d.SetAccent(static_cast<float>(std::clamp(accent, 0.0, 1.0)));
+    d.SetDecay(static_cast<float>(decay));
+    d.SetTone(static_cast<float>(tone));
+    d.SetAccent(static_cast<float>(accent));
     for (int64_t i = 0; i < b.frames; i++) p[i] = d.Process(i == 0);
   } else if (kind == "snare") {
     daisysp::AnalogSnareDrum d;
     d.Init(static_cast<float>(sr));
     d.SetFreq(static_cast<float>(freq));
-    d.SetDecay(static_cast<float>(std::clamp(decay, 0.0, 1.0)));
-    d.SetTone(static_cast<float>(std::clamp(tone, 0.0, 1.0)));
-    d.SetAccent(static_cast<float>(std::clamp(accent, 0.0, 1.0)));
+    d.SetDecay(static_cast<float>(decay));
+    d.SetTone(static_cast<float>(tone));
+    d.SetAccent(static_cast<float>(accent));
     for (int64_t i = 0; i < b.frames; i++) p[i] = d.Process(i == 0);
   } else if (kind == "synth_snare") {
     daisysp::SyntheticSnareDrum d;
     d.Init(static_cast<float>(sr));
     d.SetFreq(static_cast<float>(freq));
-    d.SetDecay(static_cast<float>(std::clamp(decay, 0.0, 1.0)));
-    d.SetAccent(static_cast<float>(std::clamp(accent, 0.0, 1.0)));
+    d.SetDecay(static_cast<float>(decay));
+    d.SetAccent(static_cast<float>(accent));
     for (int64_t i = 0; i < b.frames; i++) p[i] = d.Process(i == 0);
   } else if (kind == "hihat" || kind == "hat") {
     daisysp::HiHat<> d;
     d.Init(static_cast<float>(sr));
     d.SetFreq(static_cast<float>(freq));
-    d.SetDecay(static_cast<float>(std::clamp(decay, 0.0, 1.0)));
-    d.SetTone(static_cast<float>(std::clamp(tone, 0.0, 1.0)));
-    d.SetAccent(static_cast<float>(std::clamp(accent, 0.0, 1.0)));
+    d.SetDecay(static_cast<float>(decay));
+    d.SetTone(static_cast<float>(tone));
+    d.SetAccent(static_cast<float>(accent));
     for (int64_t i = 0; i < b.frames; i++) p[i] = d.Process(i == 0);
   } else {
     fail("unknown drum kind '" + kind + "' (expected kick, synth_kick, snare, synth_snare, or hihat)");
@@ -1079,6 +1168,10 @@ Buffer load_wav(const std::string &path) {
       channels = read_u16_le(bytes.data() + pos + 2);
       sample_rate = read_u32_le(bytes.data() + pos + 4);
       bits_per_sample = read_u16_le(bytes.data() + pos + 14);
+      if (fmt_tag == 0xFFFE && chunk_sz >= 40) {
+        // WAVE_FORMAT_EXTENSIBLE: SubFormat GUID starts at offset 24 in the fmt chunk.
+        fmt_tag = read_u16_le(bytes.data() + pos + 24);
+      }
     } else if (std::memcmp(hdr, "data", 4) == 0) {
       data_ptr = bytes.data() + pos;
       data_bytes = chunk_sz;
@@ -1172,6 +1265,7 @@ void save_wav(const Buffer &buf, const std::string &path, int64_t bits, bool dry
       }
     }
   }
+  finish_write(out, path);
 }
 
 void save_buffer_csv(const Buffer &buf, const std::string &path, int64_t max_points, int64_t stride, bool dry_run) {
@@ -1199,6 +1293,7 @@ void save_buffer_csv(const Buffer &buf, const std::string &path, int64_t max_poi
       out << t << "," << buf.at(f, 0) << "," << buf.at(f, 1) << "\n";
     }
   }
+  finish_write(out, path);
 }
 
 // --- Channel & Stereo helpers ---
@@ -1234,6 +1329,7 @@ Buffer to_mono(const Buffer &buf) {
 
 Buffer apply_gain(const Buffer &buf, double factor) {
   check_finite(factor, "factor");
+  if (std::abs(factor) > 1e12) fail("gain factor magnitude must be <= 1e12");
   Buffer out = buf;
   float g = static_cast<float>(factor);
   for (float &x : out.data) x *= g;
@@ -1242,12 +1338,13 @@ Buffer apply_gain(const Buffer &buf, double factor) {
 
 Buffer apply_gain_db(const Buffer &buf, double db) {
   check_finite(db, "db");
+  if (db < -240.0 || db > 240.0) fail("gain_db must be in [-240, 240] dB");
   return apply_gain(buf, std::pow(10.0, db / 20.0));
 }
 
 Buffer apply_normalize(const Buffer &buf, double target_peak) {
   check_finite(target_peak, "target_peak");
-  if (target_peak <= 0.0) fail("normalize: target_peak must be > 0");
+  if (target_peak <= 0.0 || target_peak > 1e6) fail("normalize: target_peak must be in (0, 1e6]");
   float pk = 0.0f;
   for (float x : buf.data) pk = std::max(pk, std::abs(x));
   if (pk < 1e-12f) return buf;
@@ -1256,23 +1353,23 @@ Buffer apply_normalize(const Buffer &buf, double target_peak) {
 
 Buffer apply_normalize_rms(const Buffer &buf, double target_rms) {
   check_finite(target_rms, "target_rms");
-  if (target_rms <= 0.0) fail("normalize_rms: target_rms must be > 0");
-  double r = compute_rms(buf, 0);
+  if (target_rms <= 0.0 || target_rms > 1e6) fail("normalize_rms: target_rms must be in (0, 1e6]");
+  if (buf.data.empty()) return buf;
+  double sum = 0.0;
+  for (float x : buf.data) sum += double(x) * double(x);
+  double r = std::sqrt(sum / double(buf.data.size()));
   if (r < 1e-12) return buf;
   return apply_gain(buf, target_rms / r);
 }
 
 Buffer apply_fade(const Buffer &buf, double fade_in_sec, double fade_out_sec, const std::string &shape) {
-  check_finite(fade_in_sec, "fade_in_sec");
-  check_finite(fade_out_sec, "fade_out_sec");
-  if (fade_in_sec < 0.0 || fade_out_sec < 0.0) fail("fade durations must be >= 0");
+  int64_t n_in = std::min(buf.frames, sec_to_frames_checked(fade_in_sec, buf.sr, "fade_in_sec", 0.0, 3600.0));
+  int64_t n_out = std::min(buf.frames, sec_to_frames_checked(fade_out_sec, buf.sr, "fade_out_sec", 0.0, 3600.0));
   bool cosine = false;
   if (shape == "cosine" || shape == "hann") cosine = true;
   else if (shape != "linear") fail("unknown fade shape '" + shape + "' (expected linear or cosine)");
 
   Buffer out = buf;
-  int64_t n_in = std::min(buf.frames, static_cast<int64_t>(std::llround(fade_in_sec * double(buf.sr))));
-  int64_t n_out = std::min(buf.frames, static_cast<int64_t>(std::llround(fade_out_sec * double(buf.sr))));
   for (int c = 0; c < out.channels; c++) {
     float *p = out.chan_ptr(c);
     for (int64_t i = 0; i < n_in; i++) {
@@ -1295,13 +1392,14 @@ Buffer apply_adsr(const Buffer &buf, double attack, double decay, double sustain
   check_finite(sustain, "sustain");
   check_finite(release, "release");
   check_finite(gate_sec, "gate_sec");
-  if (attack < 0.0 || decay < 0.0 || release < 0.0 || sustain < 0.0 || sustain > 1.0)
+  if (attack < 0.0 || attack > 3600.0 || decay < 0.0 || decay > 3600.0 || release < 0.0 || release > 3600.0 ||
+      gate_sec < 0.0 || gate_sec > 3600.0 || sustain < 0.0 || sustain > 1.0)
     fail("invalid ADSR parameters");
 
   Buffer out = buf;
   double dur = buf.duration();
   double g_sec = (gate_sec > 0.0) ? gate_sec : std::max(attack + decay, dur - release);
-  int64_t gate_frames = static_cast<int64_t>(std::llround(g_sec * double(buf.sr)));
+  int64_t gate_frames = sec_to_frames_checked(g_sec, buf.sr, "gate_sec", 0.0, 7200.0);
 
   daisysp::Adsr env;
   env.Init(static_cast<float>(buf.sr));
@@ -1336,10 +1434,8 @@ Buffer apply_pan(const Buffer &buf, double pos) {
 }
 
 Buffer apply_slice(const Buffer &buf, double start_sec, double end_sec) {
-  check_finite(start_sec, "start_sec");
-  check_finite(end_sec, "end_sec");
-  int64_t s = static_cast<int64_t>(std::llround(start_sec * double(buf.sr)));
-  int64_t e = static_cast<int64_t>(std::llround(end_sec * double(buf.sr)));
+  int64_t s = sec_to_frames_checked(start_sec, buf.sr, "slice start_sec", 0.0, 3600.0);
+  int64_t e = sec_to_frames_checked(end_sec, buf.sr, "slice end_sec", 0.0, 3600.0);
   if (s < 0 || e <= s || s >= buf.frames)
     fail("slice range [" + std::to_string(start_sec) + ", " + std::to_string(end_sec) + "] invalid");
   e = std::min(e, buf.frames);
@@ -1351,11 +1447,8 @@ Buffer apply_slice(const Buffer &buf, double start_sec, double end_sec) {
 }
 
 Buffer apply_pad(const Buffer &buf, double before_sec, double after_sec) {
-  check_finite(before_sec, "before_sec");
-  check_finite(after_sec, "after_sec");
-  if (before_sec < 0.0 || after_sec < 0.0) fail("pad durations must be >= 0");
-  int64_t nb = static_cast<int64_t>(std::llround(before_sec * double(buf.sr)));
-  int64_t na = static_cast<int64_t>(std::llround(after_sec * double(buf.sr)));
+  int64_t nb = sec_to_frames_checked(before_sec, buf.sr, "pad before_sec", 0.0, 3600.0);
+  int64_t na = sec_to_frames_checked(after_sec, buf.sr, "pad after_sec", 0.0, 3600.0);
   Buffer out(buf.sr, buf.channels, nb + buf.frames + na);
   for (int c = 0; c < buf.channels; c++) {
     std::memcpy(out.chan_ptr(c) + nb, buf.chan_ptr(c), std::size_t(buf.frames) * sizeof(float));
@@ -1376,11 +1469,10 @@ Buffer apply_concat(const Buffer &a, const Buffer &b) {
 
 Buffer apply_mix(const Buffer &a, const Buffer &b, double b_gain, double offset_sec) {
   check_finite(b_gain, "b_gain");
-  check_finite(offset_sec, "offset_sec");
+  if (std::abs(b_gain) > 1e12) fail("mix: b_gain magnitude must be <= 1e12");
   if (a.sr != b.sr) fail("mix: sample rates differ");
-  if (offset_sec < 0.0) fail("mix: offset_sec must be >= 0");
+  int64_t off = sec_to_frames_checked(offset_sec, a.sr, "mix offset_sec", 0.0, 3600.0);
   int out_ch = std::max(a.channels, b.channels);
-  int64_t off = static_cast<int64_t>(std::llround(offset_sec * double(a.sr)));
   int64_t total = std::max(a.frames, off + b.frames);
   Buffer out(a.sr, out_ch, total);
   for (int c = 0; c < out_ch; c++) {
@@ -1558,27 +1650,54 @@ Buffer apply_delay(const Buffer &buf, double delay_sec, double feedback, double 
   return out;
 }
 
+// Clean-room MIT 8-line Feedback Delay Network (FDN) stereo reverb with Householder
+// unitary mixing matrix H = I - (2/8)*1*1^T and 1-pole lowpass damping per delay line.
 Buffer apply_reverb(const Buffer &buf, double feedback, double lpf_freq, double wet) {
   check_finite(feedback, "feedback");
   check_finite(lpf_freq, "lpf_freq");
-  check_finite(wet, "wet");
+  check_unit_range(wet, "reverb wet");
   if (feedback < 0.0 || feedback >= 1.0) fail("reverb feedback must be in [0, 1)");
-  if (wet < 0.0 || wet > 1.0) fail("reverb wet must be in [0, 1]");
-  SpGuard g(buf.sr);
-  sp_revsc *rev = nullptr;
-  sp_revsc_create(&rev);
-  sp_revsc_init(g.sp, rev);
-  rev->feedback = static_cast<SPFLOAT>(feedback);
-  rev->lpfreq = static_cast<SPFLOAT>(std::clamp(lpf_freq, 100.0, double(buf.sr) * 0.48));
+  if (lpf_freq < 20.0 || lpf_freq >= double(buf.sr) * 0.49)
+    fail("reverb lpf_freq must be in [20, 0.49*sr)");
+
+  static constexpr double kDelaysSec[8] = {0.0297, 0.0371, 0.0411, 0.0437, 0.0531, 0.0593, 0.0677, 0.0739};
+  std::vector<float> lines[8];
+  std::size_t pos[8] = {0};
+  double lp_state[8] = {0.0};
+  for (int k = 0; k < 8; k++) {
+    std::size_t len = std::max<std::size_t>(8, static_cast<std::size_t>(std::llround(kDelaysSec[k] * double(buf.sr))));
+    lines[k].assign(len, 0.0f);
+  }
+  double a_lp = std::exp(-kTwoPi * lpf_freq / double(buf.sr));
+  double b_lp = 1.0 - a_lp;
 
   Buffer out(buf.sr, buf.channels, buf.frames);
   const float *inL = buf.chan_ptr(0);
   const float *inR = buf.chan_ptr(buf.channels > 1 ? 1 : 0);
   float *outL = out.chan_ptr(0);
   float *outR = out.chan_ptr(buf.channels > 1 ? 1 : 0);
+
   for (int64_t i = 0; i < buf.frames; i++) {
-    SPFLOAT xL = inL[i], xR = inR[i], yL = 0.0f, yR = 0.0f;
-    sp_revsc_compute(g.sp, rev, &xL, &xR, &yL, &yR);
+    double xL = inL[i], xR = inR[i];
+    double rd[8];
+    double sum = 0.0;
+    for (int k = 0; k < 8; k++) {
+      rd[k] = lines[k][pos[k]];
+      sum += rd[k];
+    }
+    double hh = 0.25 * sum;
+    double yL = 0.0, yR = 0.0;
+    for (int k = 0; k < 8; k++) {
+      double mixed = rd[k] - hh;
+      lp_state[k] = b_lp * mixed + a_lp * lp_state[k];
+      double exc = (k & 1) ? xR : xL;
+      lines[k][pos[k]] = static_cast<float>(exc * 0.25 + feedback * lp_state[k]);
+      pos[k] = (pos[k] + 1) % lines[k].size();
+      if (k & 1) yR += rd[k];
+      else yL += rd[k];
+    }
+    yL *= 0.5;
+    yR *= 0.5;
     if (buf.channels == 1) {
       outL[i] = static_cast<float>((1.0 - wet) * xL + wet * 0.5 * (yL + yR));
     } else {
@@ -1586,59 +1705,89 @@ Buffer apply_reverb(const Buffer &buf, double feedback, double lpf_freq, double 
       outR[i] = static_cast<float>((1.0 - wet) * xR + wet * yR);
     }
   }
-  sp_revsc_destroy(&rev);
   return out;
 }
 
+// Clean-room MIT 8-line FDN reverb with independent low/mid RT60 2-band crossover damping
+// and HF damping filter (no GPL-2 zita-rev1 code).
 Buffer apply_zitarev(const Buffer &buf, double rt60_low, double rt60_mid, double damping, double wet) {
   check_finite(rt60_low, "rt60_low");
   check_finite(rt60_mid, "rt60_mid");
   check_finite(damping, "damping");
-  check_finite(wet, "wet");
+  check_unit_range(wet, "zitarev wet");
   if (rt60_low <= 0.1 || rt60_mid <= 0.1) fail("zitarev RT60 must be > 0.1 s");
-  if (wet < 0.0 || wet > 1.0) fail("zitarev wet must be in [0, 1]");
-  SpGuard g(buf.sr);
-  sp_zitarev *zr = nullptr;
-  sp_zitarev_create(&zr);
-  sp_zitarev_init(g.sp, zr);
-  *zr->rt60_low = static_cast<SPFLOAT>(rt60_low);
-  *zr->rt60_mid = static_cast<SPFLOAT>(rt60_mid);
-  *zr->hf_damping = static_cast<SPFLOAT>(damping);
-  *zr->mix = static_cast<SPFLOAT>(wet);
-  *zr->level = 0.0f;
+  if (damping < 20.0 || damping >= double(buf.sr) * 0.49)
+    fail("zitarev damping frequency must be in [20, 0.49*sr)");
+
+  static constexpr double kDelaysSec[8] = {0.0243, 0.0317, 0.0389, 0.0461, 0.0523, 0.0607, 0.0683, 0.0761};
+  std::vector<float> lines[8];
+  std::size_t pos[8] = {0};
+  double g_low[8], g_mid[8], lp_xo[8] = {0.0}, lp_hf[8] = {0.0};
+  for (int k = 0; k < 8; k++) {
+    std::size_t len = std::max<std::size_t>(8, static_cast<std::size_t>(std::llround(kDelaysSec[k] * double(buf.sr))));
+    lines[k].assign(len, 0.0f);
+    double tau = double(len) / double(buf.sr);
+    g_low[k] = std::pow(10.0, -3.0 * tau / rt60_low);
+    g_mid[k] = std::pow(10.0, -3.0 * tau / rt60_mid);
+  }
+  double a_xo = std::exp(-kTwoPi * 250.0 / double(buf.sr));
+  double b_xo = 1.0 - a_xo;
+  double a_hf = std::exp(-kTwoPi * damping / double(buf.sr));
+  double b_hf = 1.0 - a_hf;
 
   Buffer out(buf.sr, buf.channels, buf.frames);
   const float *inL = buf.chan_ptr(0);
   const float *inR = buf.chan_ptr(buf.channels > 1 ? 1 : 0);
   float *outL = out.chan_ptr(0);
   float *outR = out.chan_ptr(buf.channels > 1 ? 1 : 0);
+
   for (int64_t i = 0; i < buf.frames; i++) {
-    SPFLOAT xL = inL[i], xR = inR[i], yL = 0.0f, yR = 0.0f;
-    sp_zitarev_compute(g.sp, zr, &xL, &xR, &yL, &yR);
+    double xL = inL[i], xR = inR[i];
+    double rd[8];
+    double sum = 0.0;
+    for (int k = 0; k < 8; k++) {
+      rd[k] = lines[k][pos[k]];
+      sum += rd[k];
+    }
+    double hh = 0.25 * sum;
+    double yL = 0.0, yR = 0.0;
+    for (int k = 0; k < 8; k++) {
+      double mixed = rd[k] - hh;
+      lp_xo[k] = b_xo * mixed + a_xo * lp_xo[k];
+      double band = g_low[k] * lp_xo[k] + g_mid[k] * (mixed - lp_xo[k]);
+      lp_hf[k] = b_hf * band + a_hf * lp_hf[k];
+      double exc = (k & 1) ? xR : xL;
+      lines[k][pos[k]] = static_cast<float>(exc * 0.25 + lp_hf[k]);
+      pos[k] = (pos[k] + 1) % lines[k].size();
+      if (k & 1) yR += rd[k];
+      else yL += rd[k];
+    }
+    yL *= 0.5;
+    yR *= 0.5;
     if (buf.channels == 1) {
-      outL[i] = 0.5f * (yL + yR);
+      outL[i] = static_cast<float>((1.0 - wet) * xL + wet * 0.5 * (yL + yR));
     } else {
-      outL[i] = yL;
-      outR[i] = yR;
+      outL[i] = static_cast<float>((1.0 - wet) * xL + wet * yL);
+      outR[i] = static_cast<float>((1.0 - wet) * xR + wet * yR);
     }
   }
-  sp_zitarev_destroy(&zr);
   return out;
 }
 
 Buffer apply_chorus(const Buffer &buf, double rate, double depth, double feedback, double wet) {
   check_finite(rate, "rate");
-  check_finite(depth, "depth");
+  check_unit_range(depth, "chorus depth");
   check_finite(feedback, "feedback");
-  check_finite(wet, "wet");
-  if (wet < 0.0 || wet > 1.0) fail("chorus wet must be in [0, 1]");
+  check_unit_range(wet, "chorus wet");
+  if (rate <= 0.0 || rate > 100.0) fail("chorus rate must be in (0, 100] Hz");
+  if (feedback < 0.0 || feedback > 0.99) fail("chorus feedback must be in [0, 0.99]");
   Buffer out(buf.sr, buf.channels, buf.frames);
   for (int c = 0; c < buf.channels; c++) {
     daisysp::Chorus ch;
     ch.Init(static_cast<float>(buf.sr));
-    ch.SetLfoFreq(static_cast<float>(std::max(0.01, rate)));
-    ch.SetLfoDepth(static_cast<float>(std::clamp(depth, 0.0, 1.0)));
-    ch.SetFeedback(static_cast<float>(std::clamp(feedback, 0.0, 0.98)));
+    ch.SetLfoFreq(static_cast<float>(rate));
+    ch.SetLfoDepth(static_cast<float>(depth));
+    ch.SetFeedback(static_cast<float>(feedback));
     const float *in_p = buf.chan_ptr(c);
     float *out_p = out.chan_ptr(c);
     for (int64_t i = 0; i < buf.frames; i++) {
@@ -1651,17 +1800,18 @@ Buffer apply_chorus(const Buffer &buf, double rate, double depth, double feedbac
 
 Buffer apply_flanger(const Buffer &buf, double rate, double depth, double feedback, double wet) {
   check_finite(rate, "rate");
-  check_finite(depth, "depth");
+  check_unit_range(depth, "flanger depth");
   check_finite(feedback, "feedback");
-  check_finite(wet, "wet");
-  if (wet < 0.0 || wet > 1.0) fail("flanger wet must be in [0, 1]");
+  check_unit_range(wet, "flanger wet");
+  if (rate <= 0.0 || rate > 100.0) fail("flanger rate must be in (0, 100] Hz");
+  if (feedback < 0.0 || feedback > 0.99) fail("flanger feedback must be in [0, 0.99]");
   Buffer out(buf.sr, buf.channels, buf.frames);
   for (int c = 0; c < buf.channels; c++) {
     daisysp::Flanger fl;
     fl.Init(static_cast<float>(buf.sr));
-    fl.SetLfoFreq(static_cast<float>(std::max(0.01, rate)));
-    fl.SetLfoDepth(static_cast<float>(std::clamp(depth, 0.0, 1.0)));
-    fl.SetFeedback(static_cast<float>(std::clamp(feedback, 0.0, 0.98)));
+    fl.SetLfoFreq(static_cast<float>(rate));
+    fl.SetLfoDepth(static_cast<float>(depth));
+    fl.SetFeedback(static_cast<float>(feedback));
     const float *in_p = buf.chan_ptr(c);
     float *out_p = out.chan_ptr(c);
     for (int64_t i = 0; i < buf.frames; i++) {
@@ -1674,19 +1824,20 @@ Buffer apply_flanger(const Buffer &buf, double rate, double depth, double feedba
 
 Buffer apply_phaser(const Buffer &buf, double rate, double depth, double feedback, int64_t poles, double wet) {
   check_finite(rate, "rate");
-  check_finite(depth, "depth");
+  check_unit_range(depth, "phaser depth");
   check_finite(feedback, "feedback");
-  check_finite(wet, "wet");
+  check_unit_range(wet, "phaser wet");
+  if (rate <= 0.0 || rate > 100.0) fail("phaser rate must be in (0, 100] Hz");
+  if (feedback < 0.0 || feedback > 0.99) fail("phaser feedback must be in [0, 0.99]");
   if (poles < 1 || poles > 8) fail("phaser poles must be in [1, 8]");
-  if (wet < 0.0 || wet > 1.0) fail("phaser wet must be in [0, 1]");
   Buffer out(buf.sr, buf.channels, buf.frames);
   for (int c = 0; c < buf.channels; c++) {
     daisysp::Phaser ph;
     ph.Init(static_cast<float>(buf.sr));
     ph.SetPoles(static_cast<int>(poles));
-    ph.SetLfoFreq(static_cast<float>(std::max(0.01, rate)));
-    ph.SetLfoDepth(static_cast<float>(std::clamp(depth, 0.0, 1.0)));
-    ph.SetFeedback(static_cast<float>(std::clamp(feedback, 0.0, 0.98)));
+    ph.SetLfoFreq(static_cast<float>(rate));
+    ph.SetLfoDepth(static_cast<float>(depth));
+    ph.SetFeedback(static_cast<float>(feedback));
     const float *in_p = buf.chan_ptr(c);
     float *out_p = out.chan_ptr(c);
     for (int64_t i = 0; i < buf.frames; i++) {
@@ -1698,10 +1849,8 @@ Buffer apply_phaser(const Buffer &buf, double rate, double depth, double feedbac
 }
 
 Buffer apply_overdrive(const Buffer &buf, double drive, double wet) {
-  check_finite(drive, "drive");
-  check_finite(wet, "wet");
-  if (drive < 0.0 || drive > 1.0) fail("overdrive drive must be in [0, 1]");
-  if (wet < 0.0 || wet > 1.0) fail("overdrive wet must be in [0, 1]");
+  check_unit_range(drive, "overdrive drive");
+  check_unit_range(wet, "overdrive wet");
   Buffer out(buf.sr, buf.channels, buf.frames);
   for (int c = 0; c < buf.channels; c++) {
     daisysp::Overdrive od;
@@ -1720,7 +1869,7 @@ Buffer apply_overdrive(const Buffer &buf, double drive, double wet) {
 Buffer apply_wavefold(const Buffer &buf, double gain, double offset) {
   check_finite(gain, "gain");
   check_finite(offset, "offset");
-  if (gain <= 0.0) fail("wavefold gain must be > 0");
+  if (gain <= 0.0 || gain > 1000.0) fail("wavefold gain must be in (0, 1000]");
   Buffer out(buf.sr, buf.channels, buf.frames);
   for (int c = 0; c < buf.channels; c++) {
     daisysp::Wavefolder wf;
@@ -1739,21 +1888,21 @@ Buffer apply_bitcrush(const Buffer &buf, int64_t bitdepth, double crush_sr) {
   if (bitdepth < 1 || bitdepth > 16) fail("bitcrush bitdepth must be in [1, 16]");
   if (crush_sr <= 50.0 || crush_sr > double(buf.sr)) fail("bitcrush crush_sr must be in (50, sr]");
   Buffer out(buf.sr, buf.channels, buf.frames);
+  const double levels = std::pow(2.0, std::floor(bitdepth));
+  const double step_samples = std::max(1.0, double(buf.sr) / crush_sr);
   for (int c = 0; c < buf.channels; c++) {
-    SpGuard g(buf.sr);
-    sp_bitcrush *bc = nullptr;
-    sp_bitcrush_create(&bc);
-    sp_bitcrush_init(g.sp, bc);
-    bc->bitdepth = static_cast<SPFLOAT>(bitdepth);
-    bc->srate = static_cast<SPFLOAT>(crush_sr);
     const float *in_p = buf.chan_ptr(c);
     float *out_p = out.chan_ptr(c);
+    double next_trigger = 0.0;
+    float held = 0.0f;
     for (int64_t i = 0; i < buf.frames; i++) {
-      SPFLOAT x = in_p[i], y = 0.0f;
-      sp_bitcrush_compute(g.sp, bc, &x, &y);
-      out_p[i] = y;
+      double q = std::floor((double(in_p[i]) * 0.5 + 0.5) * levels) / levels * 2.0 - 1.0;
+      if (double(i) >= next_trigger) {
+        next_trigger += step_samples;
+        held = static_cast<float>(q);
+      }
+      out_p[i] = held;
     }
-    sp_bitcrush_destroy(&bc);
   }
   return out;
 }
@@ -1764,18 +1913,23 @@ Buffer apply_compress(const Buffer &buf, double ratio, double thresh_db, double 
   check_finite(attack, "attack");
   check_finite(release, "release");
   check_finite(makeup_db, "makeup_db");
-  if (ratio < 1.0) fail("compress ratio must be >= 1.0");
+  if (ratio < 1.0 || ratio > 1000.0) fail("compress ratio must be in [1, 1000]");
+  if (thresh_db < -120.0 || thresh_db > 0.0) fail("compress thresh_db must be in [-120, 0] dB");
+  if (attack <= 0.0 || attack > 10.0) fail("compress attack must be in (0, 10] s");
+  if (release <= 0.0 || release > 10.0) fail("compress release must be in (0, 10] s");
+  if (makeup_db < -120.0 || makeup_db > 120.0) fail("compress makeup_db must be in [-120, 120] dB");
   float makeup = static_cast<float>(std::pow(10.0, makeup_db / 20.0));
   Buffer out(buf.sr, buf.channels, buf.frames);
   for (int c = 0; c < buf.channels; c++) {
     SpGuard g(buf.sr);
+    g.charge_extra(sizeof(sp_compressor) + 256);
     sp_compressor *comp = nullptr;
     sp_compressor_create(&comp);
     sp_compressor_init(g.sp, comp);
     *comp->ratio = static_cast<SPFLOAT>(ratio);
     *comp->thresh = static_cast<SPFLOAT>(thresh_db);
-    *comp->atk = static_cast<SPFLOAT>(std::max(0.0001, attack));
-    *comp->rel = static_cast<SPFLOAT>(std::max(0.001, release));
+    *comp->atk = static_cast<SPFLOAT>(attack);
+    *comp->rel = static_cast<SPFLOAT>(release);
     const float *in_p = buf.chan_ptr(c);
     float *out_p = out.chan_ptr(c);
     for (int64_t i = 0; i < buf.frames; i++) {
@@ -1795,8 +1949,12 @@ Buffer apply_paulstretch(const Buffer &buf, double stretch, double window_sec) {
   if (window_sec <= 0.01 || window_sec > 2.0) fail("paulstretch window_sec must be in (0.01, 2.0]");
   int64_t out_frames = std::max<int64_t>(1, static_cast<int64_t>(std::llround(double(buf.frames) * stretch)));
   Buffer out(buf.sr, buf.channels, out_frames);
+  std::size_t win_samps = std::max<std::size_t>(16, static_cast<std::size_t>(buf.sr * window_sec));
+  std::size_t sp_bytes = sizeof(sp_ftbl) + std::size_t(buf.frames) * sizeof(float) +
+                         sizeof(sp_paulstretch) + win_samps * sizeof(float) * 8;
   for (int c = 0; c < buf.channels; c++) {
     SpGuard g(buf.sr);
+    g.charge_extra(sp_bytes);
     sp_ftbl *ft = nullptr;
     sp_ftbl_create(g.sp, &ft, static_cast<size_t>(buf.frames));
     std::memcpy(ft->tbl, buf.chan_ptr(c), std::size_t(buf.frames) * sizeof(float));
@@ -1889,6 +2047,7 @@ double compute_pitch(const Buffer &buf, double fmin, double fmax, int64_t ch) {
       best_start = s;
     }
   }
+  if (best_e < 1e-18) return 0.0;
   const float *x = p + best_start;
 
   std::vector<double> d(static_cast<std::size_t>(tau_max + 1), 0.0);
@@ -1906,12 +2065,13 @@ double compute_pitch(const Buffer &buf, double fmin, double fmax, int64_t ch) {
       cmndf[std::size_t(tau)] = diff * double(tau) / running_sum;
     }
   }
+  if (running_sum < 1e-18) return 0.0;
 
   constexpr double kThreshold = 0.12;
   int64_t best_tau = -1;
-  for (int64_t tau = tau_min; tau < tau_max; tau++) {
+  for (int64_t tau = tau_min; tau <= tau_max; tau++) {
     if (cmndf[std::size_t(tau)] < kThreshold) {
-      while (tau + 1 < tau_max && cmndf[std::size_t(tau + 1)] < cmndf[std::size_t(tau)]) {
+      while (tau + 1 <= tau_max && cmndf[std::size_t(tau + 1)] < cmndf[std::size_t(tau)]) {
         tau++;
       }
       best_tau = tau;
@@ -1923,8 +2083,11 @@ double compute_pitch(const Buffer &buf, double fmin, double fmax, int64_t ch) {
     for (int64_t tau = tau_min + 1; tau <= tau_max; tau++) {
       if (cmndf[std::size_t(tau)] < cmndf[std::size_t(best_tau)]) best_tau = tau;
     }
+    if (cmndf[std::size_t(best_tau)] > 0.85) return 0.0;
   }
 
+  // Refine the CMNDF-selected lag best_tau using the symmetric difference function d(tau)
+  // (avoids the tau/running_sum tilt bias of d'(tau) on pure sinusoids, de Cheveigne & Kawahara 2002 II.E).
   double refined_tau = double(best_tau);
   if (best_tau > 1 && best_tau < tau_max) {
     double y0 = d[std::size_t(best_tau - 1)];
@@ -1936,11 +2099,14 @@ double compute_pitch(const Buffer &buf, double fmin, double fmax, int64_t ch) {
       refined_tau += std::clamp(delta, -0.5, 0.5);
     }
   }
-  return double(buf.sr) / refined_tau;
+  return std::clamp(double(buf.sr) / refined_tau, fmin, fmax);
 }
 
 Spectrum compute_spectrum(const Buffer &buf, const std::string &window, int64_t nfft, int64_t ch) {
   check_channel(buf, ch);
+  if (nfft < 0) fail("Spectrum nfft must be >= 0 (0 selects buffer frame count)");
+  if (nfft == 0 && buf.frames > 16777216)
+    fail("buffer frames exceed maximum FFT size 16777216; pass an explicit nfft in [2, 16777216]");
   int64_t N = (nfft > 0) ? nfft : buf.frames;
   if (N < 2 || N > 16777216) fail("Spectrum nfft must be in [2, 16777216]");
   int64_t copy_n = std::min(buf.frames, N);
@@ -1997,6 +2163,7 @@ double compute_centroid(const Buffer &buf, const std::string &window, int64_t ch
 
 double compute_thd(const Buffer &buf, double fundamental_hz, int64_t harmonics, int64_t ch) {
   check_channel(buf, ch);
+  check_finite(fundamental_hz, "fundamental_hz");
   if (harmonics < 2 || harmonics > 32) fail("thd: harmonics must be in [2, 32]");
   Spectrum spec = compute_spectrum(buf, "hann", 0, ch);
   double f0 = (fundamental_hz > 0.0) ? fundamental_hz : spec.peak_freq();
@@ -2011,7 +2178,7 @@ double compute_thd(const Buffer &buf, double fundamental_hz, int64_t harmonics, 
     return pwr;
   };
   double p1 = band_power(f0);
-  if (p1 < 1e-20) return 0.0;
+  if (p1 < 1e-18) fail("thd: fundamental power is too low (silent or unvoiced signal)");
   double ph = 0.0;
   for (int64_t h = 2; h <= harmonics; h++) {
     double fh = f0 * double(h);
@@ -2042,6 +2209,8 @@ double compute_snr_db(const Buffer &buf, const Buffer &ref, int64_t ch) {
 
 Spectrogram compute_spectrogram(const Buffer &buf, int64_t win_size, int64_t hop_size, const std::string &window, double max_freq, int64_t ch) {
   check_channel(buf, ch);
+  check_finite(max_freq, "max_freq");
+  if (max_freq < 0.0) fail("spectrogram max_freq must be >= 0");
   if (win_size < 16 || win_size > 65536) fail("spectrogram win_size must be in [16, 65536]");
   if (hop_size < 1 || hop_size > win_size) fail("spectrogram hop_size must be in [1, win_size]");
   if (buf.frames < win_size) fail("buffer shorter than spectrogram win_size");

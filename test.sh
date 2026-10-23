@@ -36,15 +36,23 @@ ok "build"
 want_version="lmaudio $(sed -n 's/^project(lmaudio VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)"
 [ "$("$HOST" --version)" = "$want_version" ] || fail "--version is not exactly '$want_version'"
 ok "--version prints exactly '$want_version'"
-python3 scripts/gen-schema.py >/dev/null && git diff --quiet -- schema/lmaudio.dsl.json 2>/dev/null || [ ! -e .git ] || fail "schema/lmaudio.dsl.json is stale: run scripts/gen-schema.py"
+cp schema/lmaudio.dsl.json "$WORK/schema.before"
+python3 scripts/gen-schema.py >/dev/null && cmp -s "$WORK/schema.before" schema/lmaudio.dsl.json || fail "schema/lmaudio.dsl.json is stale: run scripts/gen-schema.py"
 ok "schema matches the registrations in cpp/main.cpp"
 "$HOST" --dsl-schema --json >"$WORK/schema.json" || fail "embedded schema print"
 cmp -s "$WORK/schema.json" schema/lmaudio.dsl.json || fail "embedded schema differs from schema/lmaudio.dsl.json"
 ok "--dsl-schema --json prints byte-identical embedded schema bytes"
 diff -u <("$LMSCRIPT" --dsl-signatures schema/lmaudio.dsl.json) <("$HOST" --dsl-signatures) || fail "host/compiler signatures differ"
 ok "host registry matches compiler signatures"
-"$HOST" --notices | grep -q "DaisySP" && "$HOST" --notices | grep -q "Soundpipe" || fail "--notices missing third-party text"
-ok "--notices prints the third-party license texts"
+"$HOST" --notices >"$WORK/notices.txt" || fail "embedded notices print"
+cmp -s "$WORK/notices.txt" THIRD_PARTY_NOTICES || fail "--notices differs from THIRD_PARTY_NOTICES"
+grep -q "DaisySP" THIRD_PARTY_NOTICES && grep -q "Soundpipe" THIRD_PARTY_NOTICES && grep -q "Matsumoto" THIRD_PARTY_NOTICES && grep -q "GNU LESSER GENERAL PUBLIC LICENSE" THIRD_PARTY_NOTICES && grep -q "GCC RUNTIME LIBRARY EXCEPTION" THIRD_PARTY_NOTICES || fail "THIRD_PARTY_NOTICES missing required attributions"
+ok "--notices prints byte-identical THIRD_PARTY_NOTICES with full attribution and runtime licenses"
+
+for f in index.md 01-purpose.md 02-architecture.md 03-api.md 04-Visuals.md 05-testing.md 06-build-and-ci.md 07-decisions.md 08-limitations.md; do
+  [ -s "durable-memory/$f" ] || fail "missing or empty durable-memory/$f"
+done
+ok "durable-memory/ contains all 9 architecture files"
 
 case "$UNAME_S" in
   Linux) if ldd "$HOST" >/dev/null 2>&1; then fail "executable is dynamically linked"; fi; ok "executable is fully static (no dynamic loader)";;
@@ -71,7 +79,7 @@ for src in tests/*.lms; do
 done
 ok "$nt verification test suites compile and pass all numerical/DSP assertions"
 
-# Error paths: each snippet must fail the run with exit 3 and a message naming the problem.
+# Error paths: each snippet must fail the run with exit 3 and a message naming the problem on BOTH stdout (JSON) and stderr.
 nerr=0
 expect_error() { # name, snippet, expected message fragment
   nerr=$((nerr+1))
@@ -82,9 +90,10 @@ end _dsl_
 savedsl(p, "$WORK/$1.dslb");
 LMS
   "$LMSCRIPT" "$WORK/$1.lms" >/dev/null 2>"$WORK/$1.cerr" || { cat "$WORK/$1.cerr" >&2; fail "$1 compile"; }
-  set +e; out="$("$HOST" --dsl "$WORK/$1.dslb" 2>/dev/null)"; code=$?; set -e
+  set +e; out="$("$HOST" --dsl "$WORK/$1.dslb" 2>"$WORK/$1.rerr")"; code=$?; set -e
   [ "$code" = 3 ] || fail "$1: exit code $code, expected 3 ($out)"
-  echo "$out" | grep -q "$3" || fail "$1: message lacks '$3': $out"
+  echo "$out" | grep -q "$3" || fail "$1: stdout JSON lacks '$3': $out"
+  grep -q "$3" "$WORK/$1.rerr" || fail "$1: stderr lacks '$3': $(cat "$WORK/$1.rerr")"
 }
 expect_error badsr 'let b = audio.sine(440.0, 1.0, 0.8, 10);' "sample rate"
 expect_error baddur 'let b = audio.sine(440.0, -1.0, 0.8, 44100);' "duration"
@@ -98,6 +107,13 @@ expect_error badmidi 'let f = audio.midi_freq(200.0);' "MIDI"
 expect_error badbiquad 'let bq = audio.biquad_design("lowpass", 25000.0, 0.707, 44100);' "cutoff"
 expect_error badq 'let bq = audio.biquad_design("lowpass", 1000.0, 0.0, 44100);' "biquad Q"
 expect_error badkind 'let bq = audio.biquad_design("warp", 1000.0, 0.707, 44100);' "unknown biquad"
+expect_error badbqdb 'let bq = audio.biquad_design("peak", 1000.0, 1.0, 100000.0, 44100);' "db_gain"
+expect_error badgaindb 'let b = audio.sine(440.0, 0.1).gain_db(500.0);' "gain_db"
+expect_error badmixoff 'let a = audio.sine(440.0, 0.1); let c = a.mix(a, 1.0, 999999999999999.0);' "offset_sec"
+expect_error badpad 'let a = audio.sine(440.0, 0.1).pad(999999999999999.0, 0.0);' "before_sec"
+expect_error badpluckdamp 'let b = audio.pluck(440.0, 0.2, 0.8, 0.5, 1.5, 44100);' "damping"
+expect_error badphasefreq 'let bq = audio.biquad_design("lowpass", 1000.0, 0.707, 44100); let p = bq.phase_deg_at(30000.0);' "outside"
+expect_error thdsil 'let s = audio.silence(0.2, 44100); let t = s.thd(440.0, 5);' "fundamental power"
 expect_error badchan 'let b = audio.sine(440.0, 0.2); let c = b.channel(1);' "channel index"
 expect_error badget 'let b = audio.sine(440.0, 0.1, 0.8, 1000); let x = b.get(1000);' "outside"
 expect_error badslice 'let b = audio.sine(440.0, 0.5); let s = b.slice(0.4, 0.2);' "slice range"
@@ -107,10 +123,39 @@ expect_error badwin 'let s = audio.sine(440.0, 0.2).spectrum("kaiser");' "unknow
 expect_error badwav 'let b = audio.load_wav("does_not_exist.wav");' "cannot open WAV"
 expect_error badbits 'let b = audio.sine(440.0, 0.1).save_wav("build/bad.wav", 12);' "bits must be"
 expect_error assertfail 'audio.assert_close(1.0, 2.0, 0.1);' "assert_close failed"
-ok "errors stop the program with exit 3 and a clear message ($nerr cases)"
+if [ "$UNAME_S" = Linux ] && [ -w /dev/full ]; then
+  expect_error devfullwav 'let b = audio.sine(440.0, 0.1); b.save_wav("/dev/full", 16);' "write failed"
+  expect_error devfullcsv 'let b = audio.sine(440.0, 0.1); b.save_csv("/dev/full");' "write failed"
+fi
+ok "errors stop the program with exit 3 and a clear message on stdout and stderr ($nerr cases)"
+
+# WAVE_FORMAT_EXTENSIBLE (0xFFFE) 16-bit PCM load test.
+python3 - "$WORK/ext.wav" <<'PY'
+import math, struct, sys
+sr = 22050
+n = 4410
+samples = [int(round(0.8 * math.sin(2 * math.pi * 440.0 * i / sr) * 32767)) for i in range(n)]
+pcm = struct.pack("<" + "h" * n, *samples)
+subformat = struct.pack("<IHH8s", 1, 0x0000, 0x0010, b"\x80\x00\x00\xaa\x00\x38\x9b\x71")
+fmt_body = struct.pack("<HHIIHHHHI", 0xFFFE, 1, sr, sr * 2, 2, 16, 22, 16, 4) + subformat
+riff_body = b"WAVEfmt " + struct.pack("<I", len(fmt_body)) + fmt_body + b"data" + struct.pack("<I", len(pcm)) + pcm
+with open(sys.argv[1], "wb") as f:
+    f.write(b"RIFF" + struct.pack("<I", len(riff_body)) + riff_body)
+PY
+cat >"$WORK/ext.lms" <<LMS
+p = _dsl_ cli="lmaudio";
+let w = audio.load_wav("$WORK/ext.wav");
+audio.assert_close(w.pitch(), 440.0, 1.0);
+audio.assert_close(w.peak(), 0.8, 0.002);
+end _dsl_
+savedsl(p, "$WORK/ext.dslb");
+LMS
+"$LMSCRIPT" "$WORK/ext.lms" >/dev/null && "$HOST" --dsl "$WORK/ext.dslb" >/dev/null || fail "WAVE_FORMAT_EXTENSIBLE load"
+ok "WAVE_FORMAT_EXTENSIBLE (0xFFFE) 16-bit PCM WAV loads accurately"
 
 # Memory budget: a runaway allocation loop stops with a run error (exit 3, message on stderr and in
-# the JSON line) instead of exhausting the machine.
+# the JSON line) instead of exhausting the machine. Also verify native Soundpipe allocations are charged,
+# and invalid LMAUDIO_MAX_MEMORY_MB values fail on every CLI path (--version, --notices, --dsl-schema, --dsl-signatures).
 cat >"$WORK/runaway.lms" <<LMS
 p = _dsl_ cli="lmaudio";
 let i = 0;
@@ -126,6 +171,19 @@ set +e; out="$(LMAUDIO_MAX_MEMORY_MB=64 "$HOST" --dsl "$WORK/runaway.dslb" 2>"$W
 [ "$code" = 3 ] || fail "runaway loop under LMAUDIO_MAX_MEMORY_MB=64: exit $code, expected 3 ($out)"
 echo "$out" | grep -q "memory budget exceeded" || fail "runaway loop: JSON lacks the budget message: $out"
 grep -q "LMAUDIO_MAX_MEMORY_MB" "$WORK/runaway.err" || fail "runaway loop: no budget message on stderr"
+cat >"$WORK/sp_budget.lms" <<LMS
+p = _dsl_ cli="lmaudio";
+let s = audio.sine(440.0, 0.5, 0.5, 44100).paulstretch(20.0, 1.5);
+end _dsl_
+savedsl(p, "$WORK/sp_budget.dslb");
+LMS
+"$LMSCRIPT" "$WORK/sp_budget.lms" >/dev/null || fail "sp_budget.lms compile"
+set +e; out="$(LMAUDIO_MAX_MEMORY_MB=1 "$HOST" --dsl "$WORK/sp_budget.dslb" 2>"$WORK/sp_budget.err")"; code=$?; set -e
+[ "$code" = 3 ] && echo "$out" | grep -q "memory budget exceeded" || fail "paulstretch under LMAUDIO_MAX_MEMORY_MB=1: exit $code ($out)"
+for flag in --version --notices --dsl-schema --dsl-signatures; do
+  set +e; LMAUDIO_MAX_MEMORY_MB=abc "$HOST" "$flag" >/dev/null 2>"$WORK/badenv.err"; code=$?; set -e
+  [ "$code" = 2 ] && grep -q "positive whole number" "$WORK/badenv.err" || fail "bad LMAUDIO_MAX_MEMORY_MB on $flag: exit $code"
+done
 set +e; LMAUDIO_MAX_MEMORY_MB=-5 "$HOST" --dsl "$WORK/runaway.dslb" >/dev/null 2>"$WORK/badenv.err"; code=$?; set -e
 [ "$code" = 2 ] && grep -q "positive whole number" "$WORK/badenv.err" || fail "bad LMAUDIO_MAX_MEMORY_MB: exit $code"
 if [ "$UNAME_S" = Linux ]; then
@@ -154,7 +212,7 @@ for img in $(grep -oE 'docs/images/[A-Za-z0-9_.-]+\.(png|gif)' README.md | sort 
   [ "$size" -le "$limit" ] || fail "$img is $size bytes (limit $limit)"
   nimg=$((nimg+1))
 done
-[ "$nimg" -ge 8 ] || fail "README gallery shows only $nimg images (expected >= 8)"
+[ "$nimg" -ge 14 ] || fail "README gallery shows only $nimg images (expected >= 14)"
 nwav=0
 for wav in $(grep -oE 'docs/audio/[A-Za-z0-9_.-]+\.wav' README.md | sort -u); do
   [ -f "$wav" ] || fail "README references missing audio $wav"
@@ -163,7 +221,7 @@ for wav in $(grep -oE 'docs/audio/[A-Za-z0-9_.-]+\.wav' README.md | sort -u); do
   [ "$size" -le 200000 ] || fail "$wav is $size bytes (limit 200000)"
   nwav=$((nwav+1))
 done
-[ "$nwav" -ge 8 ] || fail "README links only $nwav audio files"
+[ "$nwav" -ge 14 ] || fail "README links only $nwav audio files (expected >= 14)"
 for ex in $(grep -oE 'examples/[A-Za-z0-9_.-]+\.lms' README.md | sort -u); do
   [ -f "$ex" ] || fail "README references missing example $ex"
 done

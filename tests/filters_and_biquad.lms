@@ -1,6 +1,6 @@
 # RBJ Audio-EQ-Cookbook biquads, analytical transfer function vs time-domain filtering, DaisySP SVF and Moog ladder.
 out = ARGV.len() > 0 ? ARGV[0] : "build/filters_and_biquad.dslb";
-p = _dsl_ cli="lmaudio";
+p = _dsl_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
 # 2nd-order Butterworth lowpass filter at 1000 Hz (Q = 1/sqrt(2) = 0.70710678)
 let lpf = audio.biquad_design("lowpass", 1000.0, 0.7071067811865, 44100);
 audio.assert_close(lpf.gain_at(0.0), 1.0, 0.0001);

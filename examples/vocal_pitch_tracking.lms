@@ -1,0 +1,81 @@
+# YIN Pitch Tracking of a Sung Vibrato Formant Chirp & Melody with Unvoiced Silence Gaps:
+# Demonstrates sub-sample CMNDF parabolic lag refinement and 0.0 Hz unvoiced/silence rejection.
+mkdir("build");
+mkdir("audio");
+mkdir("images");
+
+a = _dsl_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+let sr = 22050;
+
+# Synthesize a sung vocal glide (220 Hz -> 374 Hz with 5.5 Hz +/- 5 Hz vibrato and 3 glottal harmonics),
+# followed by a 0.25 s silent breath gap, then a held vibrato note at 330 Hz (E4).
+let phrase1 = audio.expr(
+  "0.55*sin(2*pi*(220*t + 55*t*t + 0.15*sin(2*pi*5.5*t))) + 0.28*sin(4*pi*(220*t + 55*t*t + 0.15*sin(2*pi*5.5*t))) + 0.14*sin(6*pi*(220*t + 55*t*t + 0.15*sin(2*pi*5.5*t)))",
+  1.4, sr
+).adsr(0.04, 0.1, 0.85, 0.08);
+
+# Shape with vowel formant resonances (F1 = 730 Hz, F2 = 1090 Hz for vowel /a/)
+let f1_eq = audio.biquad_design("peak", 730.0, 4.0, 9.0, sr);
+let f2_eq = audio.biquad_design("peak", 1150.0, 4.5, 7.0, sr);
+let v1 = f2_eq.apply(f1_eq.apply(phrase1));
+
+let gap = audio.silence(0.25, sr);
+
+let phrase2 = audio.expr(
+  "0.55*sin(2*pi*(330*t + 0.16*sin(2*pi*5.8*t))) + 0.28*sin(4*pi*(330*t + 0.16*sin(2*pi*5.8*t))) + 0.14*sin(6*pi*(330*t + 0.16*sin(2*pi*5.8*t)))",
+  0.85, sr
+).adsr(0.04, 0.1, 0.85, 0.08);
+let v2 = f2_eq.apply(f1_eq.apply(phrase2));
+
+let vocal = v1.concat(gap).concat(v2).normalize(0.90);
+vocal.save_wav("audio/vocal_pitch_tracking.wav", 16);
+vocal.save_csv("build/vocal_wave.csv", 1600);
+
+# Verify YIN pitch tracker returns 0.0 Hz on the silent breath gap and tracks the voiced chirp & E4 note
+audio.assert_close(vocal.slice(1.45, 1.60).pitch(80.0, 800.0), 0.0, 0.001);
+audio.assert_close(vocal.slice(0.42, 0.58).pitch(80.0, 800.0), 220.0 + 110.0 * 0.5, 12.0);
+audio.assert_close(vocal.slice(1.85, 2.25).pitch(80.0, 800.0), 330.0, 8.0);
+
+# Sample the YIN pitch contour every 50 ms across the 2.50 s recording into a 1-sample-per-hop Buffer and export as CSV
+let dt = 0.05;
+let one_samp = 1.0 / 8000.0;
+let pitch_buf = audio.impulse(one_samp, 0.0, vocal.slice(0.0, 0.09).pitch(80.0, 800.0) / 500.0, 8000);
+let i = 1;
+while (i < 46) {
+  let t0 = float(i) * dt;
+  let f0 = vocal.slice(t0, t0 + 0.09).pitch(80.0, 800.0);
+  pitch_buf = pitch_buf.concat(audio.impulse(one_samp, 0.0, f0 / 500.0, 8000));
+  i = i + 1;
+}
+pitch_buf.save_csv("build/vocal_yin_raw.csv", 200);
+
+let sg = vocal.spectrogram(512, 128, "hann", 2400.0);
+sg.save_csv("build/vocal_sgram.csv", -75.0);
+end _dsl_
+savedsl(a, "build/vocal_pitch_tracking.dslb");
+r1 = system ${dsl_cli(a)} --dsl build/vocal_pitch_tracking.dslb;
+assert(r1.code == 0);
+
+draw = _dsl_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+plot.png("images/vocal_pitch_tracking.png", 980, 660);
+plot.cmd("set datafile separator ','");
+plot.cmd("set multiplot layout 2,1 title 'YIN Fundamental Pitch Tracking of a Sung Vibrato Formant Glide and Breath Gap' font ',13'");
+plot.cmd("set border 3; set tics nomirror; set grid lc rgb '#e0e0e0'");
+
+plot.cmd("set title 'Formant-Filtered Sung Vibrato Spectrogram (F0 + Harmonics F1/F2)'; set xlabel 'Time (s)'; set ylabel 'Frequency (Hz)'");
+plot.cmd("set xrange [0:2.5]; set yrange [0:2200]; set cbrange [-68:0]; set cblabel 'dB'");
+plot.cmd("set pm3d map; set palette defined (0 '#081d58', 0.25 '#225ea8', 0.5 '#41b6c4', 0.75 '#fed976', 1 '#bd0026')");
+plot.cmd("splot 'build/vocal_sgram.csv' u 1:2:3 notitle");
+
+plot.cmd("unset pm3d");
+plot.cmd("set title 'YIN Pitch Trajectory f0(t): Vibrato Chirp (220->374 Hz), Unvoiced Breath (0 Hz), Held E4 (330 Hz)'; set xlabel 'Time (s)'; set ylabel 'Detected Pitch (Hz)'");
+plot.cmd("set xrange [0:2.3]; set yrange [-20:440]; set key top left box opaque");
+plot.cmd("plot 'build/vocal_yin_raw.csv' u ($1*400.0):($2*500.0) w lp pt 7 ps 0.9 lw 2.2 lc rgb '#d62728' t 'YIN f0(t) Estimate (0 Hz in Silent Gap)'");
+
+plot.cmd("unset multiplot");
+plot.close();
+end _dsl_
+savedsl(draw, "build/vocal_pitch_tracking-draw.dslb");
+r2 = system ${dsl_cli(draw)} --dsl build/vocal_pitch_tracking-draw.dslb;
+assert(r2.code == 0);
+print("wrote images/vocal_pitch_tracking.png and audio/vocal_pitch_tracking.wav");

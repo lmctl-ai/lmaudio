@@ -95,6 +95,8 @@ void register_host(dslvm::Registry &r, Host &h) {
   // --- Audio module ---
   method(r, "Audio", "silence", {"int", "float"}, "Buffer",
          [&](void *, Args &a) { return h.buf(lmaudio::make_silence(a[0].i, a[1].f)); });
+  method(r, "Audio", "silence", {"float", "int"}, "Buffer",
+         [&](void *, Args &a) { return h.buf(lmaudio::make_silence(a[1].i, a[0].f)); });
   method(r, "Audio", "silence", {"float"}, "Buffer",
          [&](void *, Args &a) { return h.buf(lmaudio::make_silence(44100, a[0].f)); });
 
@@ -469,6 +471,18 @@ const char *usage =
     "usage: lmaudio --version | --notices | --dsl-schema [--json] | --dsl-signatures | [--dry-run] --dsl FILE [FILE ...]\n"
     "environment: LMAUDIO_MAX_MEMORY_MB  total memory budget in MiB (default 4096); a program that needs more\n"
     "             stops with a run error (exit 3) instead of allocating\n";
+
+void diagnostic(const std::string &text) {
+  if (text.find("memory budget exceeded:") != std::string::npos) return;
+  std::cerr << "lmaudio: ";
+  for (char c : text) std::cerr << ((c == '\r' || c == '\n') ? ' ' : c);
+  std::cerr << '\n';
+}
+
+int report_and_log(const char *phase, const dslvm::Error &e) {
+  diagnostic(e.what());
+  return dslvm::report_error(phase, e);
+}
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -476,6 +490,21 @@ int main(int argc, char **argv) {
   _setmode(_fileno(stdout), _O_BINARY);
   _setmode(_fileno(stderr), _O_BINARY);
 #endif
+  if (const char *env = std::getenv("LMAUDIO_MAX_MEMORY_MB")) {
+    bool digits_only = (*env != '\0');
+    for (const char *p = env; *p; ++p) {
+      if (*p < '0' || *p > '9') digits_only = false;
+    }
+    if (!digits_only) {
+      std::cerr << "lmaudio: LMAUDIO_MAX_MEMORY_MB must be a positive whole number of MiB, got '" << env << "'\n";
+      std::cerr << usage;
+      return 2;
+    }
+  }
+  if (!membudget::configure("lmaudio", "LMAUDIO_MAX_MEMORY_MB")) {
+    std::cerr << usage;
+    return 2;
+  }
   if (argc == 2 && std::string(argv[1]) == "--version") {
     std::cout << "lmaudio " << LMAUDIO_VERSION << "\n";
     return 0;
@@ -512,10 +541,6 @@ int main(int argc, char **argv) {
       return 2;
     }
   }
-  if (!membudget::configure("lmaudio", "LMAUDIO_MAX_MEMORY_MB")) {
-    std::cerr << usage;
-    return 2;
-  }
   const std::string schema(reinterpret_cast<const char *>(lmaudio::embedded_schema), lmaudio::embedded_schema_size);
   dslvm::Context context;
   context.set("audio", &host);
@@ -524,18 +549,18 @@ int main(int argc, char **argv) {
     try {
       programs.push_back(dslvm::Program::load(dslvm::read_file(argv[i]), schema, reg));
     } catch (const dslvm::Error &e) {
-      return dslvm::report_error("load", e);
+      return report_and_log("load", e);
     } catch (const std::exception &e) {
-      return dslvm::report_error("load", dslvm::Error(e.what()));
+      return report_and_log("load", dslvm::Error(e.what()));
     }
   }
   for (const auto &p : programs) {
     try {
       p.run(context, reg);
     } catch (const dslvm::Error &e) {
-      return dslvm::report_error("run", e);
+      return report_and_log("run", e);
     } catch (const std::exception &e) {
-      return dslvm::report_error("run", dslvm::Error(e.what()));
+      return report_and_log("run", dslvm::Error(e.what()));
     }
     dslvm::report_ok();
   }

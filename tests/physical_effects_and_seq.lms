@@ -1,6 +1,6 @@
 # Physical modeling (Karplus-Strong, modal, bar), FM2, drums, reverbs, effects, and sequence rendering.
 out = ARGV.len() > 0 ? ARGV[0] : "build/physical_effects_and_seq.dslb";
-p = _dsl_ cli="lmaudio";
+p = _dsl_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
 # Karplus-Strong plucked string pitch accuracy and determinism
 let pl1 = audio.pluck(440.0, 1.0, 0.8, 0.7, 0.85, 44100);
 let pl2 = audio.pluck(440.0, 1.0, 0.8, 0.7, 0.85, 44100);

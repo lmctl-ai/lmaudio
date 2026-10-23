@@ -1,0 +1,77 @@
+# Studio FDN Reverb Impulse Response (IR), Decay Envelope & Spectral Damping:
+# Excites zitarev across Room (RT60=0.6s), Concert Hall (RT60=1.6s), and Cathedral (RT60=3.2s) spaces.
+mkdir("build");
+mkdir("audio");
+mkdir("images");
+
+a = _dsl_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+let sr = 22050;
+
+# Unit impulse padded to 1.8 s to capture the full reverberant impulse response h(t)
+let imp = audio.impulse(1.8, 0.005, 1.0, sr);
+let ir_room = imp.zitarev(0.55, 0.45, 4500.0, 1.0).normalize(0.9);
+let ir_hall = imp.zitarev(1.60, 1.25, 6000.0, 1.0).normalize(0.9);
+let ir_cath = imp.zitarev(3.20, 2.50, 7500.0, 1.0).normalize(0.9);
+
+# Verify late tail energy (t in [0.5, 1.5] s) grows monotonically from Room -> Hall -> Cathedral
+if (ir_hall.slice(0.5, 1.5).rms() <= ir_room.slice(0.5, 1.5).rms()) {
+  audio.assert_close(ir_hall.slice(0.5, 1.5).rms(), ir_room.slice(0.5, 1.5).rms(), 0.0);
+}
+if (ir_cath.slice(0.5, 1.5).rms() <= ir_hall.slice(0.5, 1.5).rms()) {
+  audio.assert_close(ir_cath.slice(0.5, 1.5).rms(), ir_hall.slice(0.5, 1.5).rms(), 0.0);
+}
+
+ir_room.save_csv("build/ir_room_wave.csv", 1800);
+ir_hall.save_csv("build/ir_hall_wave.csv", 1800);
+ir_cath.save_csv("build/ir_cath_wave.csv", 1800);
+
+# STFT spectrogram of Concert Hall impulse response showing faster HF absorption than LF decay
+let sg_hall = ir_hall.spectrogram(256, 64, "hann", 8000.0);
+sg_hall.save_csv("build/ir_hall_sgram.csv", -75.0);
+
+# Compare early (0..0.25 s) vs late (0.6..1.4 s) spectrum of the Hall IR
+ir_hall.slice(0.01, 0.26).spectrum("hann", 4096).save_csv("build/ir_hall_early_spec.csv", 8000.0);
+ir_hall.slice(0.55, 1.35).spectrum("hann", 4096).save_csv("build/ir_hall_late_spec.csv", 8000.0);
+
+# Audible showcase: acoustic snare transient + plucked chord in Concert Hall reverb
+let snare_hit = audio.drum("snare", 185.0, 0.35, 0.45, 0.55, 0.9, sr).pad(0.0, 1.15);
+let hall_demo = snare_hit.zitarev(1.8, 1.3, 6200.0, 0.42).concat(
+  audio.sequence("E4+G#4+B4+E5:0.4 R:1.4", 60.0, "pluck", sr).zitarev(2.6, 1.9, 6800.0, 0.50)
+).normalize(0.92);
+hall_demo.save_wav("audio/reverb_impulse_response.wav", 16);
+end _dsl_
+savedsl(a, "build/reverb_impulse_response.dslb");
+r1 = system ${dsl_cli(a)} --dsl build/reverb_impulse_response.dslb;
+assert(r1.code == 0);
+
+draw = _dsl_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+plot.png("images/reverb_impulse_response.png", 980, 660);
+plot.cmd("set datafile separator ','");
+plot.cmd("set multiplot layout 2,2 title 'Studio 8-Line Hadamard FDN Reverb Impulse Response (IR) and RT60 Decay' font ',13'");
+plot.cmd("set border 3; set tics nomirror; set grid lc rgb '#e0e0e0'");
+
+plot.cmd("set title 'Concert Hall Impulse Response h(t)' font ',11'; set xlabel 'Time (s)'; set ylabel 'Amplitude'");
+plot.cmd("set xrange [0:1.6]; set yrange [-0.95:0.95]; unset key");
+plot.cmd("plot 'build/ir_hall_wave.csv' u 1:2 w l lw 1.2 lc rgb '#1f77b4'");
+
+plot.cmd("set title 'Decay Slopes: Room, Hall, Cathedral' font ',11'; set xlabel 'Time (s)'; set ylabel 'Envelope Level (dB)'");
+plot.cmd("set xrange [0:1.75]; set yrange [-68:0]; set key top right box opaque");
+plot.cmd("plot 'build/ir_cath_wave.csv' u 1:(20*log10(abs($2)+1e-4)) w dots lc rgb '#d62728' t 'Cathedral (RT60=3.2 s)', 'build/ir_hall_wave.csv' u 1:(20*log10(abs($2)+1e-4)) w dots lc rgb '#1f77b4' t 'Concert Hall (RT60=1.6 s)', 'build/ir_room_wave.csv' u 1:(20*log10(abs($2)+1e-4)) w dots lc rgb '#2ca02c' t 'Small Room (RT60=0.55 s)'");
+
+plot.cmd("set title 'Hall IR Spectrogram (HF Air Absorption)' font ',11'; set xlabel 'Time (s)'; set ylabel 'Frequency (Hz)'");
+plot.cmd("set xrange [0:1.6]; set yrange [0:7500]; set cbrange [-70:0]; set cblabel 'dB'");
+plot.cmd("set pm3d map; set palette defined (0 '#081d58', 0.25 '#225ea8', 0.5 '#41b6c4', 0.75 '#fed976', 1 '#bd0026')");
+plot.cmd("splot 'build/ir_hall_sgram.csv' u 1:2:3 notitle");
+
+plot.cmd("unset pm3d");
+plot.cmd("set title 'Early Reflections vs Late Reverb Spectrum' font ',11'; set xlabel 'Frequency (Hz)'; set ylabel 'Level (dB)'");
+plot.cmd("set xrange [100:7500]; set yrange [-75:-10]; set key top right box opaque");
+plot.cmd("plot 'build/ir_hall_early_spec.csv' u 1:3 w l lw 1.5 lc rgb '#1f77b4' t 'Early Reflections (Bright)', 'build/ir_hall_late_spec.csv' u 1:3 w l lw 1.5 lc rgb '#9467bd' t 'Late Tail (HF Damped)'");
+
+plot.cmd("unset multiplot");
+plot.close();
+end _dsl_
+savedsl(draw, "build/reverb_impulse_response-draw.dslb");
+r2 = system ${dsl_cli(draw)} --dsl build/reverb_impulse_response-draw.dslb;
+assert(r2.code == 0);
+print("wrote images/reverb_impulse_response.png and audio/reverb_impulse_response.wav");

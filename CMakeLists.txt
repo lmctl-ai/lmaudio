@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(lmaudio VERSION 0.1.0 LANGUAGES C CXX)
+project(lmaudio VERSION 0.1.1 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -31,22 +31,13 @@ file(WRITE "${GEN}/schema_embedded.hpp" "#pragma once\n#include <cstddef>\nnames
 embed_file(NOTICES_SRC "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES" lmaudio embedded_notices)
 file(WRITE "${GEN}/notices_embedded.hpp" "#pragma once\n#include <cstddef>\nnamespace lmaudio { ${NOTICES_SRC} }\n")
 
-# Soundpipe (MIT): generate soundpipe.h from the selected pure-C DSP modules (no libsndfile).
+# Soundpipe (MIT): compile only the 6 non-Csound, non-GPL core/DSP modules
+# (base, ftbl, tevent, randmt, compressor, paulstretch) plus KissFFT (BSD-3).
+# All Csound-extracted opcodes (including fold/bar/revsc/etc.) and zitarev (derived from zita-rev1) are excluded.
 set(SP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/soundpipe")
 set(SP_MODULES
   base ftbl tevent randmt
-  adsr allpass atone autowah bal bar biquad biscale fold bitcrush
-  blsaw blsquare bltriangle brown butbp butbr buthp butlp
-  clamp clip clock comb compressor count conv crossfade dcblock delay
-  diode dist dmetro drip dtrig dust eqfil expon fof fog fofilt fosc
-  gbuzz hilbert in incr jcrev jitter line lpf18 maygate metro mincer
-  mode moogladder noise osc oscmorph pan2 panst pareq paulstretch
-  pdhalf peaklim phaser phasor pinknoise pitchamdf pluck port posc3
-  pshift ptrack randh randi random reverse reson revsc rms rpt rspline
-  saturator samphold scale scrambler sdelay slice smoothdelay sndwarp
-  streson switch tabread tadsr talkbox tblrec tbvcf tdiv tenv tenv2
-  tenvx tgate thresh timer tin tone trand tseg tseq vdelay voc vocoder
-  waveset wpkorg35 zitarev fftwrapper padsynth
+  compressor paulstretch
 )
 
 set(SP_HEADER_TEXT "#ifndef SOUNDPIPE_H\n#define SOUNDPIPE_H\n")
@@ -57,12 +48,7 @@ endforeach()
 string(APPEND SP_HEADER_TEXT "#endif\n")
 file(WRITE "${GEN}/soundpipe.h" "${SP_HEADER_TEXT}")
 
-file(READ "${SP_DIR}/lib/fft/fftlib.c" FFTLIB_C)
-file(READ "${SP_DIR}/lib/fft/sp_fft.c" SP_FFT_C)
-file(WRITE "${GEN}/sp_fft_combined.c" "${FFTLIB_C}\n${SP_FFT_C}\n")
-
 set(SP_SRCS
-  "${GEN}/sp_fft_combined.c"
   "${SP_DIR}/lib/kissfft/kiss_fft.c"
   "${SP_DIR}/lib/kissfft/kiss_fftr.c"
 )
@@ -77,7 +63,6 @@ target_include_directories(soundpipe_core SYSTEM PUBLIC
   "${SP_DIR}/h"
   "${SP_DIR}/lib/faust"
   "${SP_DIR}/lib/kissfft"
-  "${SP_DIR}/lib/fft"
 )
 if(NOT MSVC)
   target_compile_options(soundpipe_core PRIVATE -w)

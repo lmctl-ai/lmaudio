@@ -1,6 +1,6 @@
 # Synthesis, PolyBLEP oscillators, YIN pitch detection, and expression waveforms.
 out = ARGV.len() > 0 ? ARGV[0] : "build/synthesis_and_pitch.dslb";
-p = _dsl_ cli="lmaudio";
+p = _dsl_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
 let s440 = audio.sine(440.0, 1.0, 0.8, 44100);
 audio.assert_close(s440.duration(), 1.0, 0.0001);
 audio.assert_close(s440.peak(), 0.8, 0.0002);
@@ -36,6 +36,10 @@ audio.assert_close(audio.note_freq("F#5"), 739.9888454, 0.001);
 audio.assert_close(audio.note_freq("Bb3"), 233.0818808, 0.001);
 audio.assert_close(audio.midi_freq(69.0), 440.0, 0.0001);
 audio.assert_close(audio.midi_freq(60.0), 261.6255653, 0.001);
+
+# Silence pitch detection returns 0.0 Hz (never above fmax)
+let sil = audio.silence(0.5, 44100);
+audio.assert_close(sil.pitch(50.0, 2000.0), 0.0, 0.0001);
 
 # Deterministic noise: identical seeds yield identical signals (SNR = 240 dB)
 let nw1 = audio.noise("white", 0.5, 0.5, 101, 44100);
