@@ -15,8 +15,8 @@ filters/dynamics/effects, rooms/reverb, analysis/delivery; each has image, audio
 
 Gotchas met while building the 0.2 gallery:
 - gnuplot keys with `box opaque` and long titles drew boxes far wider than the text: use `nobox`.
-- A gnuplot error inside `plot.cmd` (e.g. a duplicated `font` option) can leave a truncated PNG
-  while the program still exits 0 (lmplot 0.1.1): always view the image.
+- A duplicated `font` option in one `set title` produced a nearly empty 15 KB PNG and no error
+  (lmplot 0.1.1): always look at the image, not only the exit code.
 - `pm3d map` labels need `front` to show over the heatmap.
 - `lmctl autorun` installs the *released* lmaudio: examples using new API only autorun after a
   release that contains it.
