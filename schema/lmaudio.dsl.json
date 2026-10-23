@@ -394,6 +394,57 @@
             "returns": "Biquad"
           }
         ],
+        "print": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "void"
+          }
+        ],
+        "karplus": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "float",
+              "int",
+              "int"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "additive": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "string",
+              "int"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "string"
+            ],
+            "returns": "Buffer"
+          }
+        ],
         "assert_close": [
           {
             "params": [
@@ -486,6 +537,91 @@
           },
           {
             "params": [],
+            "returns": "Buffer"
+          }
+        ],
+        "lufs": [
+          {
+            "params": [],
+            "returns": "float"
+          }
+        ],
+        "normalize_lufs": [
+          {
+            "params": [
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "multiply": [
+          {
+            "params": [
+              "Buffer"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "convolve": [
+          {
+            "params": [
+              "Buffer"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "pattern": [
+          {
+            "params": [
+              "string",
+              "float",
+              "int"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "string",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "granular": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "float",
+              "float",
+              "float",
+              "int"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "schroeder_db": [
+          {
+            "params": [],
+            "returns": "Buffer"
+          }
+        ],
+        "rt60": [
+          {
+            "params": [],
+            "returns": "float"
+          }
+        ],
+        "pitch_track_csv": [
+          {
+            "params": [
+              "string",
+              "float",
+              "float",
+              "float",
+              "float"
+            ],
             "returns": "Buffer"
           }
         ],

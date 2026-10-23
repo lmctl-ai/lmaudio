@@ -123,6 +123,18 @@ expect_error badwin 'let s = audio.sine(440.0, 0.2).spectrum("kaiser");' "unknow
 expect_error badwav 'let b = audio.load_wav("does_not_exist.wav");' "cannot open WAV"
 expect_error badbits 'let b = audio.sine(440.0, 0.1).save_wav("build/bad.wav", 12);' "bits must be"
 expect_error assertfail 'audio.assert_close(1.0, 2.0, 0.1);' "assert_close failed"
+expect_error bqsrmismatch 'let bq = audio.biquad_design("lowpass", 1000.0, 0.707, 48000); let y = bq.apply(audio.sine(440.0, 0.1, 0.5, 8000));' "designed for sr=48000"
+expect_error barunstable 'let b = audio.bar(1, 3, 5000.0, 2.0, 0.2, 0.8, 22050);' "too high"
+python3 -c "import struct,sys; d=struct.pack('<4f',0.1,float('nan'),0.2,0.3); f=struct.pack('<HHIIHH',3,1,8000,32000,4,32); sys.stdout.buffer.write(b'RIFF'+struct.pack('<I',4+8+16+8+len(d))+b'WAVEfmt '+struct.pack('<I',16)+f+b'data'+struct.pack('<I',len(d))+d)" >"$WORK/nan.wav"
+expect_error nanwav "let b = audio.load_wav(\"$WORK/nan.wav\");" "not finite"
+expect_error mulframes 'let a = audio.sine(440.0, 0.1, 0.5, 8000); let b = audio.sine(440.0, 0.2, 0.5, 8000); let c = a.multiply(b);' "frame counts differ"
+expect_error convsr 'let a = audio.sine(440.0, 0.1, 0.5, 8000); let b = audio.impulse(0.01, 0.0, 1.0, 16000); let c = a.convolve(b);' "convolve: sample rates differ"
+expect_error badpattern 'let a = audio.sine(440.0, 0.05, 0.5, 8000).pattern("x..y", 120.0, 4);' "unknown step character"
+expect_error badpartial 'let a = audio.additive(220.0, 0.1, 0.5, "1 0.5 abc", 8000);' "invalid partial"
+expect_error lufssilent 'let l = audio.silence(1.0, 44100).lufs();' "absolute gate"
+expect_error rt60short 'let r = audio.sine(440.0, 0.5, 0.5, 8000).rt60();' "does not fall"
+expect_error ksfreq 'let k = audio.karplus(10000.0, 0.5, 0.5, 1.0, 1, 22050);' "karplus frequency"
+expect_error grainpos 'let g = audio.sine(440.0, 0.5, 0.5, 8000).granular(1.0, 0.05, 20.0, 1.5, 0.0, 0.0, 1);' "position"
 if [ "$UNAME_S" = Linux ] && [ -w /dev/full ]; then
   expect_error devfullwav 'let b = audio.sine(440.0, 0.1); b.save_wav("/dev/full", 16);' "write failed"
   expect_error devfullcsv 'let b = audio.sine(440.0, 0.1); b.save_csv("/dev/full");' "write failed"
@@ -152,6 +164,34 @@ savedsl(p, "$WORK/ext.dslb");
 LMS
 "$LMSCRIPT" "$WORK/ext.lms" >/dev/null && "$HOST" --dsl "$WORK/ext.dslb" >/dev/null || fail "WAVE_FORMAT_EXTENSIBLE load"
 ok "WAVE_FORMAT_EXTENSIBLE (0xFFFE) 16-bit PCM WAV loads accurately"
+
+# WAV writer/reader edge cases: odd-length 24-bit mono data chunk gets its RIFF pad byte,
+# out-of-range samples are clipped with a stderr warning, a truncated data chunk still loads.
+cat >"$WORK/wavedge.lms" <<LMS
+p = _dsl_ cli="lmaudio";
+let odd = audio.sine(440.0, 0.0001, 0.5, 10000);
+odd.save_wav("$WORK/odd24.wav", 24);
+let back = audio.load_wav("$WORK/odd24.wav");
+audio.assert_close(float(back.frames()), 1.0, 0.0);
+audio.sine(440.0, 0.1, 1.5, 8000).save_wav("$WORK/hot.wav", 16);
+audio.sine(440.0, 0.5, 0.5, 8000).save_wav("$WORK/full.wav", 16);
+end _dsl_
+savedsl(p, "$WORK/wavedge.dslb");
+LMS
+"$LMSCRIPT" "$WORK/wavedge.lms" >/dev/null && "$HOST" --dsl "$WORK/wavedge.dslb" >/dev/null 2>"$WORK/wavedge.err" || fail "WAV edge-case program"
+[ "$(wc -c <"$WORK/odd24.wav")" = 48 ] || fail "24-bit mono 1-frame WAV should be 44 + 3 + 1 pad bytes, got $(wc -c <"$WORK/odd24.wav")"
+grep -q "clipped while writing $WORK/hot.wav" "$WORK/wavedge.err" || fail "no clipping warning on stderr: $(cat "$WORK/wavedge.err")"
+head -c 4044 "$WORK/full.wav" >"$WORK/trunc.wav"
+cat >"$WORK/trunc.lms" <<LMS
+p = _dsl_ cli="lmaudio";
+let t = audio.load_wav("$WORK/trunc.wav");
+audio.assert_close(float(t.frames()), 2000.0, 0.0);
+end _dsl_
+savedsl(p, "$WORK/trunc.dslb");
+LMS
+"$LMSCRIPT" "$WORK/trunc.lms" >/dev/null && "$HOST" --dsl "$WORK/trunc.dslb" >/dev/null 2>"$WORK/trunc.err" || fail "truncated WAV load"
+grep -q "only 4000 are present" "$WORK/trunc.err" || fail "no truncation warning: $(cat "$WORK/trunc.err")"
+ok "WAV edge cases: RIFF pad byte, clipping warning, truncated data chunk"
 
 # Memory budget: a runaway allocation loop stops with a run error (exit 3, message on stderr and in
 # the JSON line) instead of exhausting the machine. Also verify native Soundpipe allocations are charged,

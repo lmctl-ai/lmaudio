@@ -159,4 +159,19 @@ Spectrum compute_spectrum(const Buffer &buf, const std::string &window, int64_t 
 Buffer compute_ifft(const Spectrum &spec);
 Spectrogram compute_spectrogram(const Buffer &buf, int64_t win_size, int64_t hop_size, const std::string &window, double max_freq, int64_t ch);
 
+// Additions in 0.2: loudness, convolution, room acoustics, classic synthesis, sequencing.
+Buffer make_karplus(double freq, double duration, double amp, double t60, int64_t seed, int64_t sr);
+Buffer make_additive(double f0, double duration, double amp, const std::string &partials, int64_t sr);
+Buffer apply_multiply(const Buffer &a, const Buffer &b);
+Buffer apply_convolve(const Buffer &buf, const Buffer &ir);
+Buffer apply_pattern(const Buffer &hit, const std::string &steps, double bpm, int64_t steps_per_beat);
+Buffer apply_granular(const Buffer &src, double out_dur, double grain_sec, double density, double position,
+                      double pos_spread, double pitch_spread_semitones, int64_t seed);
+Buffer apply_normalize_lufs(const Buffer &buf, double target_lufs);
+Buffer compute_schroeder_db(const Buffer &buf, int64_t ch);
+double compute_lufs(const Buffer &buf);
+double compute_rt60(const Buffer &buf, int64_t ch);
+void save_pitch_track_csv(const Buffer &buf, const std::string &path, double hop_sec, double win_sec, double fmin,
+                          double fmax, bool dry_run);
+
 }  // namespace lmaudio

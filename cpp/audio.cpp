@@ -210,8 +210,16 @@ std::vector<double> make_window(const std::string &kind, std::size_t n, double &
       w[i] = 0.42 - 0.5 * std::cos(a) + 0.08 * std::cos(2.0 * a);
       sum += w[i];
     }
+  } else if (kind == "flattop") {
+    // HFT-style 5-term flat-top (SR785 / Heinzel): scalloping loss < 0.01 dB for amplitude reading.
+    for (std::size_t i = 0; i < n; i++) {
+      double a = kTwoPi * double(i) / denom;
+      w[i] = 0.21557895 - 0.41663158 * std::cos(a) + 0.277263158 * std::cos(2.0 * a) -
+             0.083578947 * std::cos(3.0 * a) + 0.006947368 * std::cos(4.0 * a);
+      sum += w[i];
+    }
   } else {
-    fail("unknown window '" + kind + "' (expected rect, hann, hamming, or blackman)");
+    fail("unknown window '" + kind + "' (expected rect, hann, hamming, blackman, or flattop)");
   }
   coherent_gain = sum / double(n);
   return w;
@@ -384,6 +392,9 @@ Biquad design_biquad(const std::string &kind, double freq, double q, double db_g
 }
 
 Buffer apply_biquad(const Buffer &buf, const Biquad &bq) {
+  if (bq.sr != buf.sr)
+    fail("biquad was designed for sr=" + std::to_string(bq.sr) + " but the buffer has sr=" + std::to_string(buf.sr) +
+         " (redesign it with the buffer's sample rate or resample the buffer)");
   Buffer out(buf.sr, buf.channels, buf.frames);
   for (int c = 0; c < buf.channels; c++) {
     const float *in_p = buf.chan_ptr(c);
@@ -859,7 +870,11 @@ Buffer make_bar(int64_t bc_left, int64_t bc_right, double stiffness, double deca
   double s0 = 3.0 * std::log(10.0) / decay;
   double s1 = 0.0005;
   double h_min = std::sqrt(2.0 * dt * (s1 + std::sqrt(s1 * s1 + stiffness * stiffness)));
-  int N = std::clamp(static_cast<int>(std::floor(1.0 / h_min)), 8, 512);
+  // Stability (Bilbao 2009 eq. 7.40) needs grid spacing h >= h_min, so never round N up.
+  int N = std::min(static_cast<int>(std::floor(1.0 / h_min)), 512);
+  if (N < 6)
+    fail("bar stiffness " + std::to_string(stiffness) + " is too high for sr=" + std::to_string(sr) +
+         " (the stable grid would have fewer than 6 points; lower stiffness or raise sr)");
   double h = 1.0 / double(N);
   double mu = (stiffness * dt) / (h * h);
   double mu2 = mu * mu;
@@ -885,13 +900,15 @@ Buffer make_bar(int64_t bc_left, int64_t bc_right, double stiffness, double deca
     if (idx == -1) {
       if (bc_left == 1) return u[1];       // clamped: u_0 = 0, u_{-1} = u_1
       if (bc_left == 2) return -u[1];      // pivoting: u_0 = 0, u_{-1} = -u_1
-      return 2.0 * u[0] - u[1];            // free
+      return 2.0 * u[0] - u[1];            // free: u_xx = 0
     }
+    if (idx == -2) return 4.0 * u[0] - 4.0 * u[1] + u[2];  // free: u_xxx = 0 (only reached when bc_left == 3)
     if (idx == N + 1) {
       if (bc_right == 1) return u[N - 1];
       if (bc_right == 2) return -u[N - 1];
       return 2.0 * u[N] - u[N - 1];
     }
+    if (idx == N + 2) return 4.0 * u[N] - 4.0 * u[N - 1] + u[N - 2];  // free end, u_xxx = 0
     return 0.0;
   };
 
@@ -938,6 +955,11 @@ Buffer make_drum(const std::string &kind, double freq, double duration, double d
   if (kind == "kick" || kind == "bass") {
     daisysp::AnalogBassDrum d;
     d.Init(static_cast<float>(sr));
+    // DaisySP's port multiplies both FM amounts by 50 (Plaits uses 0..1), and its default
+    // self-FM of 1.0 then sounds the "55 Hz" kick near 110 Hz. Keep the Plaits attack sweep
+    // (amount 1.0 -> 1/50 here) and disable self-FM so the decaying tone sits on `freq`.
+    d.SetAttackFmAmount(1.0f / 50.0f);
+    d.SetSelfFmAmount(0.0f);
     d.SetFreq(static_cast<float>(freq));
     d.SetDecay(static_cast<float>(decay));
     d.SetTone(static_cast<float>(tone));
@@ -1161,7 +1183,17 @@ Buffer load_wav(const std::string &path) {
     const uint8_t *hdr = bytes.data() + pos;
     uint32_t chunk_sz = read_u32_le(hdr + 4);
     pos += 8;
-    if (pos + chunk_sz > bytes.size()) break;
+    if (pos + chunk_sz > bytes.size()) {
+      // A truncated final data chunk (crashed recorder, streaming writer that never patched the
+      // header) still holds valid samples: keep what is there and say so on stderr.
+      if (std::memcmp(hdr, "data", 4) == 0 && !data_ptr) {
+        data_ptr = bytes.data() + pos;
+        data_bytes = static_cast<uint32_t>(bytes.size() - pos);
+        std::cerr << "lmaudio: warning: data chunk of '" << path << "' declares " << chunk_sz << " bytes but only "
+                  << data_bytes << " are present; reading the available samples\n";
+      }
+      break;
+    }
     if (std::memcmp(hdr, "fmt ", 4) == 0) {
       if (chunk_sz < 16) fail("corrupt fmt chunk in '" + path + "'");
       fmt_tag = read_u16_le(bytes.data() + pos);
@@ -1188,6 +1220,7 @@ Buffer load_wav(const std::string &path) {
 
   std::size_t frame_bytes = bytes_per_sample * channels;
   int64_t frames = static_cast<int64_t>(data_bytes / frame_bytes);
+  if (frames <= 0) fail("WAV file '" + path + "' contains no audio frames");
   Buffer out(static_cast<int>(sample_rate), static_cast<int>(channels), frames);
 
   for (int64_t f = 0; f < frames; f++) {
@@ -1204,6 +1237,8 @@ Buffer load_wav(const std::string &path) {
       } else if (fmt_tag == 3 && bits_per_sample == 32) {
         uint32_t u = read_u32_le(p);
         std::memcpy(&val, &u, sizeof(float));
+        if (!std::isfinite(val))
+          fail("WAV file '" + path + "' has a sample that is not finite (NaN/inf) at frame " + std::to_string(f));
       }
       out.at(f, c) = val;
     }
@@ -1219,6 +1254,12 @@ void save_wav(const Buffer &buf, const std::string &path, int64_t bits, bool dry
     std::cerr << "lmaudio: --dry-run: would write " << path << "\n";
     return;
   }
+  for (std::size_t i = 0; i < buf.data.size(); i++) {
+    if (!std::isfinite(buf.data[i])) {
+      int64_t f = buf.frames > 0 ? int64_t(i) % buf.frames : 0;
+      fail("save_wav: sample at frame " + std::to_string(f) + " is not finite (NaN/inf); refusing to write '" + path + "'");
+    }
+  }
   ensure_parent_dir(path);
   std::ofstream out(path, std::ios::binary);
   if (!out) fail("cannot write WAV file '" + path + "'");
@@ -1230,7 +1271,9 @@ void save_wav(const Buffer &buf, const std::string &path, int64_t bits, bool dry
   uint16_t block_align = channels * bytes_per_sample;
   uint32_t byte_rate = sr * block_align;
   uint32_t data_bytes = static_cast<uint32_t>(buf.frames) * block_align;
-  uint32_t riff_size = 36 + data_bytes;
+  uint32_t pad = data_bytes & 1u;  // RIFF chunks are word aligned (24-bit mono, odd frame count)
+  uint32_t riff_size = 36 + data_bytes + pad;
+  int64_t clipped = 0;
 
   out.write("RIFF", 4);
   write_u32_le(out, riff_size);
@@ -1249,6 +1292,7 @@ void save_wav(const Buffer &buf, const std::string &path, int64_t bits, bool dry
   for (int64_t f = 0; f < buf.frames; f++) {
     for (int c = 0; c < buf.channels; c++) {
       float s = buf.at(f, c);
+      if (bits != 32 && (s > 1.0f || s < -1.0f)) clipped++;
       if (bits == 16) {
         double clamped = std::clamp(double(s), -1.0, 32767.0 / 32768.0);
         int16_t q = static_cast<int16_t>(std::lrint(clamped * 32768.0));
@@ -1265,7 +1309,11 @@ void save_wav(const Buffer &buf, const std::string &path, int64_t bits, bool dry
       }
     }
   }
+  if (pad) out.put('\0');
   finish_write(out, path);
+  if (clipped > 0)
+    std::cerr << "lmaudio: warning: " << clipped << " sample(s) outside [-1, 1] were clipped while writing " << path
+              << " (" << bits << "-bit PCM); normalize() first or save with bits=32\n";
 }
 
 void save_buffer_csv(const Buffer &buf, const std::string &path, int64_t max_points, int64_t stride, bool dry_run) {
@@ -1496,36 +1544,74 @@ Buffer apply_reverse(const Buffer &buf) {
   return out;
 }
 
+namespace {
+double bessel_i0(double x) {
+  double sum = 1.0, term = 1.0, hx = 0.5 * x;
+  for (int k = 1; k < 64; k++) {
+    term *= (hx / double(k)) * (hx / double(k));
+    sum += term;
+    if (term < sum * 1e-17) break;
+  }
+  return sum;
+}
+}  // namespace
+
+// Kaiser-windowed sinc sample-rate conversion. The low-pass cutoff sits at 0.91 x the lower
+// Nyquist frequency with 32 zero crossings per side and Kaiser beta 9.0 (~90 dB stopband), so a
+// 48 kHz -> 16 kHz conversion removes an 11 kHz tone instead of folding it to 5 kHz. The kernel is
+// tabulated (512 points per zero crossing, linearly interpolated: < -100 dB table error).
 Buffer apply_resample(const Buffer &buf, int64_t new_sr) {
   check_sr(new_sr);
   if (new_sr == buf.sr) return buf;
   double ratio = double(new_sr) / double(buf.sr);
-  int64_t out_frames = std::max<int64_t>(1, static_cast<int64_t>(std::llround(double(buf.frames) * ratio)));
+  double out_len = std::llround(double(buf.frames) * ratio);
+  int64_t out_frames = std::max<int64_t>(1, static_cast<int64_t>(out_len));
   Buffer out(static_cast<int>(new_sr), buf.channels, out_frames);
-  constexpr int kRadius = 6;
-  double scale = std::min(1.0, ratio);
+  constexpr int kZeroCrossings = 32;
+  constexpr int kTableRes = 512;
+  constexpr double kBeta = 9.0;
+  constexpr double kRolloff = 0.91;
+  const double fc = 0.5 * std::min(1.0, ratio) * kRolloff;  // cycles per input sample
+  const double half_width = double(kZeroCrossings) / (2.0 * fc);  // in input samples
+  // table[j] = kernel at u = j / (kZeroCrossings * kTableRes) of the half width.
+  const int table_n = kZeroCrossings * kTableRes + 2;
+  std::vector<double> table(static_cast<std::size_t>(table_n), 0.0);
+  const double i0b = bessel_i0(kBeta);
+  for (int j = 0; j < table_n; j++) {
+    double u = double(j) / double(kZeroCrossings * kTableRes);
+    if (u >= 1.0) break;
+    double t = u * half_width;  // input samples
+    double x = 2.0 * fc * t;
+    double sinc = (x < 1e-12) ? 1.0 : std::sin(kPi * x) / (kPi * x);
+    double win = bessel_i0(kBeta * std::sqrt(std::max(0.0, 1.0 - u * u))) / i0b;
+    table[std::size_t(j)] = 2.0 * fc * sinc * win;
+  }
+  auto kernel = [&](double t) {
+    double u = std::abs(t) / half_width * double(kZeroCrossings * kTableRes);
+    std::size_t j = static_cast<std::size_t>(u);
+    if (j + 1 >= table.size()) return 0.0;
+    double fr = u - double(j);
+    return table[j] + (table[j + 1] - table[j]) * fr;
+  };
+  const int64_t reach = static_cast<int64_t>(std::ceil(half_width));
   for (int c = 0; c < buf.channels; c++) {
     const float *in_p = buf.chan_ptr(c);
     float *out_p = out.chan_ptr(c);
     for (int64_t i = 0; i < out_frames; i++) {
       double src_pos = double(i) / ratio;
       int64_t center = static_cast<int64_t>(std::floor(src_pos));
+      int64_t k0 = center - reach + 1, k1 = center + reach;
+      bool edge = (k0 < 0 || k1 >= buf.frames);
       double sum = 0.0, wsum = 0.0;
-      int half_w = static_cast<int>( std::ceil(double(kRadius) / scale) );
-      for (int k = -half_w; k <= half_w; k++) {
-        int64_t idx = center + k;
-        if (idx < 0 || idx >= buf.frames) continue;
-        double x = (src_pos - double(idx)) * scale;
-        double w = 1.0;
-        if (std::abs(x) >= double(kRadius)) continue;
-        if (std::abs(x) > 1e-9) {
-          double pix = kPi * x;
-          w = (std::sin(pix) / pix) * (std::sin(pix / double(kRadius)) / (pix / double(kRadius)));
-        }
+      for (int64_t idx = std::max<int64_t>(0, k0); idx <= std::min<int64_t>(buf.frames - 1, k1); idx++) {
+        double w = kernel(src_pos - double(idx));
         sum += double(in_p[idx]) * w;
         wsum += w;
       }
-      out_p[i] = static_cast<float>(wsum > 1e-12 ? (sum / wsum) : 0.0);
+      // Interior samples use the exact kernel (unit DC gain by construction); at the buffer
+      // edges the truncated kernel is renormalised so a constant signal stays constant.
+      if (edge) sum = (wsum > 1e-9) ? sum / wsum : 0.0;
+      out_p[i] = static_cast<float>(sum);
     }
   }
   return out;
@@ -1987,7 +2073,11 @@ double compute_peak(const Buffer &buf, int64_t ch) {
   check_channel(buf, ch);
   const float *p = buf.chan_ptr(static_cast<int>(ch));
   double pk = 0.0;
-  for (int64_t i = 0; i < buf.frames; i++) pk = std::max(pk, std::abs(double(p[i])));
+  for (int64_t i = 0; i < buf.frames; i++) {
+    double v = std::abs(double(p[i]));
+    if (std::isnan(v)) return v;  // never hide NaN behind std::max
+    pk = std::max(pk, v);
+  }
   return pk;
 }
 
@@ -2257,6 +2347,418 @@ Spectrogram compute_spectrogram(const Buffer &buf, int64_t win_size, int64_t hop
     }
   }
   return sg;
+}
+
+// --- 0.2 additions: classic synthesis, convolution, loudness, room acoustics, sequencing ---
+
+// Classic Karplus-Strong (1983) with the Jaffe-Smith (1983) extensions: a seeded noise burst
+// circulates through a delay line, a two-point average (half-sample delay) and a first-order
+// allpass that supplies the fractional delay, so the loop length is exactly sr/freq and the
+// pitch is in tune; a loop gain sets the fundamental's 60 dB decay time to `t60`.
+Buffer make_karplus(double freq, double duration, double amp, double t60, int64_t seed, int64_t sr) {
+  check_sr(sr);
+  check_finite(freq, "freq");
+  check_finite(amp, "amp");
+  check_finite(t60, "t60");
+  if (freq < 20.0 || freq > double(sr) * 0.25)
+    fail("karplus frequency " + std::to_string(freq) + " Hz must be in [20, sr/4]");
+  if (t60 < 0.01 || t60 > 60.0) fail("karplus t60 must be in [0.01, 60] seconds");
+  Buffer b(static_cast<int>(sr), 1, calc_frames(sr, duration));
+  double period = double(sr) / freq;
+  int64_t n = static_cast<int64_t>(std::floor(period - 0.6));
+  double d = period - 0.5 - double(n);  // allpass delay at low frequency, in [0.1, 1.1)
+  double c_ap = (1.0 - d) / (1.0 + d);
+  double avg_gain = std::max(std::cos(kPi * freq / double(sr)), 1e-3);
+  double g = std::min(0.99999, std::pow(10.0, -3.0 / (freq * t60)) / avg_gain);
+  std::vector<double> line(static_cast<std::size_t>(n), 0.0);
+  Rng rng(seed);
+  double mean = 0.0;
+  for (auto &v : line) {
+    v = rng.uniform_bipolar();
+    mean += v;
+  }
+  mean /= double(n);
+  for (auto &v : line) v -= mean;
+  std::size_t pos = 0;
+  double prev = 0.0, ap_x1 = 0.0, ap_y1 = 0.0;
+  float *p = b.chan_ptr(0);
+  double max_abs = 0.0;
+  for (int64_t i = 0; i < b.frames; i++) {
+    double y = line[pos];
+    double avg = 0.5 * (y + prev);
+    prev = y;
+    double ap = c_ap * avg + ap_x1 - c_ap * ap_y1;
+    ap_x1 = avg;
+    ap_y1 = ap;
+    line[pos] = g * ap;
+    pos = (pos + 1) % line.size();
+    p[i] = static_cast<float>(y);
+    max_abs = std::max(max_abs, std::abs(y));
+  }
+  if (max_abs > 1e-12) {
+    float scale = static_cast<float>(amp / max_abs);
+    for (int64_t i = 0; i < b.frames; i++) p[i] *= scale;
+  }
+  return b;
+}
+
+// Additive synthesis: `partials` lists amplitudes of harmonics 1, 2, 3, ... ("1 0 0.333 0 0.2")
+// or explicit ratio:amplitude pairs for inharmonic spectra ("1:1 2.76:0.5 5.40:0.25").
+// Partials at or above Nyquist are skipped, so the result is band-limited by construction.
+Buffer make_additive(double f0, double duration, double amp, const std::string &partials, int64_t sr) {
+  check_sr(sr);
+  check_finite(f0, "f0");
+  check_finite(amp, "amp");
+  if (f0 <= 0.0 || f0 >= double(sr) * 0.5) fail("additive f0 must be in (0, Nyquist)");
+  std::istringstream iss(partials);
+  std::string tok;
+  std::vector<std::pair<double, double>> list;
+  int64_t harmonic = 0;
+  while (iss >> tok) {
+    double ratio = 0.0, a = 0.0;
+    try {
+      std::size_t used = 0;
+      auto colon = tok.find(':');
+      if (colon == std::string::npos) {
+        harmonic++;
+        ratio = double(harmonic);
+        a = std::stod(tok, &used);
+        if (used != tok.size()) throw std::invalid_argument(tok);
+      } else {
+        ratio = std::stod(tok.substr(0, colon), &used);
+        if (used != colon) throw std::invalid_argument(tok);
+        std::string rest = tok.substr(colon + 1);
+        a = std::stod(rest, &used);
+        if (used != rest.size()) throw std::invalid_argument(tok);
+      }
+    } catch (...) {
+      fail("additive: invalid partial '" + tok + "' (expected an amplitude or ratio:amplitude)");
+    }
+    if (!std::isfinite(ratio) || !std::isfinite(a) || ratio <= 0.0 || ratio > 1000.0)
+      fail("additive: partial '" + tok + "' out of range (ratio in (0, 1000])");
+    if (list.size() >= 512) fail("additive: at most 512 partials");
+    list.emplace_back(ratio, a);
+  }
+  if (list.empty()) fail("additive: partial list is empty");
+  Buffer b(static_cast<int>(sr), 1, calc_frames(sr, duration));
+  std::vector<double> acc(static_cast<std::size_t>(b.frames), 0.0);
+  for (const auto &pa : list) {
+    double f = f0 * pa.first;
+    if (f >= double(sr) * 0.5 || pa.second == 0.0) continue;
+    double w = kTwoPi * f / double(sr);
+    for (int64_t i = 0; i < b.frames; i++) acc[std::size_t(i)] += pa.second * std::sin(w * double(i));
+  }
+  float *p = b.chan_ptr(0);
+  for (int64_t i = 0; i < b.frames; i++) p[i] = static_cast<float>(amp * acc[std::size_t(i)]);
+  return b;
+}
+
+// Sample-by-sample product (ring modulation, or applying an envelope made with audio.expr).
+Buffer apply_multiply(const Buffer &a, const Buffer &b) {
+  if (a.sr != b.sr) fail("multiply: sample rates differ (" + std::to_string(a.sr) + " vs " + std::to_string(b.sr) + ")");
+  if (a.frames != b.frames)
+    fail("multiply: frame counts differ (" + std::to_string(a.frames) + " vs " + std::to_string(b.frames) + ")");
+  int out_ch = std::max(a.channels, b.channels);
+  Buffer out(a.sr, out_ch, a.frames);
+  for (int c = 0; c < out_ch; c++) {
+    const float *x = a.chan_ptr(std::min(c, a.channels - 1));
+    const float *y = b.chan_ptr(std::min(c, b.channels - 1));
+    float *o = out.chan_ptr(c);
+    for (int64_t i = 0; i < a.frames; i++) o[i] = x[i] * y[i];
+  }
+  return out;
+}
+
+// Linear convolution y = x * h by FFT overlap-add; length frames + ir.frames - 1.
+// A mono IR is applied to every channel; a stereo IR on a mono input gives a stereo result.
+Buffer apply_convolve(const Buffer &buf, const Buffer &ir) {
+  if (buf.sr != ir.sr)
+    fail("convolve: sample rates differ (" + std::to_string(buf.sr) + " vs " + std::to_string(ir.sr) + "); resample one first");
+  int64_t m = ir.frames;
+  if (m > 4800000) fail("convolve: impulse response longer than 4800000 frames");
+  int64_t out_frames = buf.frames + m - 1;
+  std::size_t nfft = 1024;
+  while (nfft < std::size_t(2 * m)) nfft <<= 1;
+  int64_t block = int64_t(nfft) - m + 1;
+  int out_ch = std::max(buf.channels, ir.channels);
+  Buffer out(buf.sr, out_ch, out_frames);
+  membudget::require(nfft * sizeof(std::complex<double>) * 2);
+  std::vector<std::complex<double>> h(nfft), x(nfft);
+  for (int c = 0; c < out_ch; c++) {
+    const float *hp = ir.chan_ptr(std::min(c, ir.channels - 1));
+    const float *xp = buf.chan_ptr(std::min(c, buf.channels - 1));
+    float *op = out.chan_ptr(c);
+    std::fill(h.begin(), h.end(), std::complex<double>(0.0, 0.0));
+    for (int64_t i = 0; i < m; i++) h[std::size_t(i)] = {double(hp[i]), 0.0};
+    fft_radix2(h, false);
+    for (int64_t start = 0; start < buf.frames; start += block) {
+      std::fill(x.begin(), x.end(), std::complex<double>(0.0, 0.0));
+      int64_t len = std::min(block, buf.frames - start);
+      for (int64_t i = 0; i < len; i++) x[std::size_t(i)] = {double(xp[start + i]), 0.0};
+      fft_radix2(x, false);
+      for (std::size_t k = 0; k < nfft; k++) x[k] *= h[k];
+      fft_radix2(x, true);
+      double inv = 1.0 / double(nfft);
+      int64_t lim = std::min<int64_t>(int64_t(nfft), out_frames - start);
+      for (int64_t i = 0; i < lim; i++) op[start + i] += static_cast<float>(x[std::size_t(i)].real() * inv);
+    }
+  }
+  return out;
+}
+
+// Step sequencer: places `hit` on a grid of steps (`steps_per_beat` steps per beat at `bpm`).
+// 'X' = accent (gain 1.0), 'x' = normal (0.7), 'o' = ghost note (0.4), digits 1-9 = gain 0.1-0.9,
+// '.', '-', '_' = rest; spaces and '|' are ignored (use them as bar lines). The result lasts the
+// whole grid, or longer if the last hit rings past it.
+Buffer apply_pattern(const Buffer &hit, const std::string &steps, double bpm, int64_t steps_per_beat) {
+  check_finite(bpm, "bpm");
+  if (bpm <= 10.0 || bpm > 600.0) fail("pattern bpm must be in (10, 600]");
+  if (steps_per_beat < 1 || steps_per_beat > 16) fail("pattern steps_per_beat must be in [1, 16]");
+  double step_sec = 60.0 / bpm / double(steps_per_beat);
+  std::vector<std::pair<int64_t, double>> hits;
+  int64_t n = 0;
+  for (char ch : steps) {
+    if (ch == ' ' || ch == '|' || ch == '\t' || ch == '\n') continue;
+    double g = -1.0;
+    if (ch == 'X') g = 1.0;
+    else if (ch == 'x') g = 0.7;
+    else if (ch == 'o') g = 0.4;
+    else if (ch >= '1' && ch <= '9') g = 0.1 * double(ch - '0');
+    else if (ch == '.' || ch == '-' || ch == '_') g = 0.0;
+    else fail(std::string("pattern: unknown step character '") + ch + "' (use X x o 1-9 for hits, . - _ for rests)");
+    if (g > 0.0) hits.emplace_back(static_cast<int64_t>(std::llround(double(n) * step_sec * double(hit.sr))), g);
+    n++;
+    if (n > 100000) fail("pattern: more than 100000 steps");
+  }
+  if (n == 0) fail("pattern: no steps");
+  int64_t grid = static_cast<int64_t>(std::llround(double(n) * step_sec * double(hit.sr)));
+  int64_t total = grid;
+  for (const auto &h : hits) total = std::max(total, h.first + hit.frames);
+  Buffer out(hit.sr, hit.channels, total);
+  for (int c = 0; c < hit.channels; c++) {
+    const float *src = hit.chan_ptr(c);
+    float *dst = out.chan_ptr(c);
+    for (const auto &h : hits) {
+      float g = static_cast<float>(h.second);
+      for (int64_t i = 0; i < hit.frames; i++) dst[h.first + i] += g * src[i];
+    }
+  }
+  return out;
+}
+
+// Asynchronous granular synthesis: Hann-windowed grains read from `src` around `position`
+// (0..1 of its length, +/- pos_spread seconds), transposed by up to +/- pitch_spread semitones,
+// started at `density` grains per second with seeded jitter. Deterministic for a given seed.
+Buffer apply_granular(const Buffer &src, double out_dur, double grain_sec, double density, double position,
+                      double pos_spread, double pitch_spread_semitones, int64_t seed) {
+  check_finite(grain_sec, "grain_sec");
+  check_finite(density, "density");
+  check_finite(position, "position");
+  check_finite(pos_spread, "pos_spread");
+  check_finite(pitch_spread_semitones, "pitch_spread");
+  if (grain_sec < 0.005 || grain_sec > 2.0) fail("granular grain_sec must be in [0.005, 2] s");
+  if (density <= 0.0 || density > 2000.0) fail("granular density must be in (0, 2000] grains per second");
+  if (position < 0.0 || position > 1.0) fail("granular position must be in [0, 1] (fraction of the source)");
+  if (pos_spread < 0.0 || pos_spread > 600.0) fail("granular pos_spread must be in [0, 600] s");
+  if (pitch_spread_semitones < 0.0 || pitch_spread_semitones > 24.0) fail("granular pitch_spread must be in [0, 24] semitones");
+  Buffer mono = to_mono(src);
+  Buffer out(src.sr, 1, calc_frames(src.sr, out_dur));
+  const float *x = mono.chan_ptr(0);
+  float *y = out.chan_ptr(0);
+  int64_t g_len = std::max<int64_t>(8, static_cast<int64_t>(std::llround(grain_sec * double(src.sr))));
+  double overlap = density * grain_sec;
+  double gain = 1.0 / std::sqrt(std::max(1.0, 0.375 * overlap));  // Hann power 3/8 per grain
+  int64_t n_grains = static_cast<int64_t>(std::ceil(out_dur * density));
+  Rng rng(seed);
+  std::vector<double> win(static_cast<std::size_t>(g_len));
+  for (int64_t j = 0; j < g_len; j++) win[std::size_t(j)] = 0.5 * (1.0 - std::cos(kTwoPi * double(j) / double(g_len - 1)));
+  double src_len = double(mono.frames);
+  for (int64_t g = 0; g < n_grains; g++) {
+    double u_t = 0.5 * (rng.uniform_bipolar() + 1.0);
+    double u_p = rng.uniform_bipolar();
+    double u_f = rng.uniform_bipolar();
+    int64_t onset = static_cast<int64_t>(std::llround((double(g) + u_t) / density * double(src.sr)));
+    if (onset >= out.frames) continue;
+    double rate = std::pow(2.0, pitch_spread_semitones * u_f / 12.0);
+    double center = (position * src_len / double(src.sr) + pos_spread * u_p) * double(src.sr);
+    double start = center - 0.5 * double(g_len) * rate;
+    start = std::clamp(start, 0.0, std::max(0.0, src_len - 2.0 - double(g_len) * rate));
+    for (int64_t j = 0; j < g_len && onset + j < out.frames; j++) {
+      double sp = start + double(j) * rate;
+      int64_t i0 = static_cast<int64_t>(sp);
+      if (i0 < 0 || i0 + 1 >= mono.frames) continue;
+      double fr = sp - double(i0);
+      double v = double(x[i0]) * (1.0 - fr) + double(x[i0 + 1]) * fr;
+      y[onset + j] += static_cast<float>(gain * win[std::size_t(j)] * v);
+    }
+  }
+  return out;
+}
+
+// ITU-R BS.1770-4 / EBU R128 integrated loudness (LUFS): K-weighting (high shelf + RLB high-pass,
+// with the parameters that reproduce the standard's 48 kHz coefficients at any sample rate),
+// 400 ms blocks with 75 % overlap, -70 LUFS absolute gate and -10 LU relative gate. Channels are
+// weighted 1.0 (mono or left/right). A 0 dBFS 997 Hz sine in one channel reads -3.01 LUFS.
+double compute_lufs(const Buffer &buf) {
+  if (buf.frames <= 0) fail("lufs: buffer is empty");
+  if (buf.sr < 8000) fail("lufs: sample rate must be >= 8000 Hz for K-weighting");
+  // Pre-filter design from libebur128 (MIT): reproduces the BS.1770 48 kHz table exactly.
+  Biquad shelf, rlb;
+  shelf.sr = rlb.sr = buf.sr;
+  {
+    double f0 = 1681.974450955533, g = 3.999843853973347, q = 0.7071752369554196;
+    double k = std::tan(kPi * f0 / double(buf.sr));
+    double vh = std::pow(10.0, g / 20.0), vb = std::pow(vh, 0.4996667741545416);
+    double a0 = 1.0 + k / q + k * k;
+    shelf.b0 = (vh + vb * k / q + k * k) / a0;
+    shelf.b1 = 2.0 * (k * k - vh) / a0;
+    shelf.b2 = (vh - vb * k / q + k * k) / a0;
+    shelf.a1 = 2.0 * (k * k - 1.0) / a0;
+    shelf.a2 = (1.0 - k / q + k * k) / a0;
+  }
+  {
+    double f0 = 38.13547087602444, q = 0.5003270373238773;
+    double k = std::tan(kPi * f0 / double(buf.sr));
+    double a0 = 1.0 + k / q + k * k;
+    rlb.b0 = 1.0;
+    rlb.b1 = -2.0;
+    rlb.b2 = 1.0;
+    rlb.a1 = 2.0 * (k * k - 1.0) / a0;
+    rlb.a2 = (1.0 - k / q + k * k) / a0;
+  }
+  Buffer k = apply_biquad(apply_biquad(buf, shelf), rlb);
+  int64_t block = static_cast<int64_t>(std::llround(0.4 * double(buf.sr)));
+  int64_t hop = static_cast<int64_t>(std::llround(0.1 * double(buf.sr)));
+  std::vector<double> z;
+  if (k.frames < block) {
+    double s = 0.0;
+    for (int c = 0; c < k.channels; c++)
+      for (int64_t i = 0; i < k.frames; i++) s += double(k.at(i, c)) * double(k.at(i, c));
+    z.push_back(s / double(k.frames));
+  } else {
+    for (int64_t start = 0; start + block <= k.frames; start += hop) {
+      double s = 0.0;
+      for (int c = 0; c < k.channels; c++) {
+        const float *p = k.chan_ptr(c) + start;
+        for (int64_t i = 0; i < block; i++) s += double(p[i]) * double(p[i]);
+      }
+      z.push_back(s / double(block));
+    }
+  }
+  auto loud = [](double ms) { return -0.691 + 10.0 * std::log10(std::max(ms, 1e-300)); };
+  double sum = 0.0;
+  int64_t cnt = 0;
+  for (double v : z)
+    if (loud(v) > -70.0) {
+      sum += v;
+      cnt++;
+    }
+  if (cnt == 0) fail("lufs: signal is below the -70 LUFS absolute gate (silent)");
+  double rel_gate = loud(sum / double(cnt)) - 10.0;
+  sum = 0.0;
+  cnt = 0;
+  for (double v : z)
+    if (loud(v) > -70.0 && loud(v) > rel_gate) {
+      sum += v;
+      cnt++;
+    }
+  return loud(sum / double(cnt));
+}
+
+Buffer apply_normalize_lufs(const Buffer &buf, double target_lufs) {
+  check_finite(target_lufs, "target_lufs");
+  if (target_lufs < -70.0 || target_lufs > 0.0) fail("normalize_lufs: target must be in [-70, 0] LUFS");
+  double l = compute_lufs(buf);
+  return apply_gain(buf, std::pow(10.0, (target_lufs - l) / 20.0));
+}
+
+// Schroeder backward-integrated energy decay curve in dB (0 dB at t = 0, floored at -150 dB).
+Buffer compute_schroeder_db(const Buffer &buf, int64_t ch) {
+  check_channel(buf, ch);
+  const float *p = buf.chan_ptr(static_cast<int>(ch));
+  std::vector<double> e(static_cast<std::size_t>(buf.frames));
+  double acc = 0.0;
+  for (int64_t i = buf.frames - 1; i >= 0; i--) {
+    acc += double(p[i]) * double(p[i]);
+    e[std::size_t(i)] = acc;
+  }
+  if (acc <= 0.0) fail("schroeder: signal is silent");
+  Buffer out(buf.sr, 1, buf.frames);
+  float *o = out.chan_ptr(0);
+  for (int64_t i = 0; i < buf.frames; i++)
+    o[i] = static_cast<float>(std::max(-150.0, 10.0 * std::log10(std::max(e[std::size_t(i)] / acc, 1e-300))));
+  return out;
+}
+
+// Reverberation time from the Schroeder curve: least-squares slope over -5..-35 dB (T30),
+// falling back to -5..-25 dB (T20) when the decay is too short; RT60 = -60 dB / slope.
+double compute_rt60(const Buffer &buf, int64_t ch) {
+  Buffer edc = compute_schroeder_db(buf, ch);
+  const float *d = edc.chan_ptr(0);
+  int64_t i5 = -1, i_end = -1;
+  for (int64_t i = 0; i < edc.frames; i++)
+    if (d[i] <= -5.0f) {
+      i5 = i;
+      break;
+    }
+  for (double stop : {-35.0, -25.0}) {
+    for (int64_t i = std::max<int64_t>(0, i5); i < edc.frames && i5 >= 0; i++)
+      if (d[i] <= stop) {
+        i_end = i;
+        break;
+      }
+    // A steady signal's Schroeder curve also plunges, but only in the final samples (truncation):
+    // demand the fit range to end before the last 5 % of the buffer.
+    if (i_end > i5 + 4 && double(i_end) < 0.95 * double(edc.frames)) break;
+    i_end = -1;
+  }
+  if (i5 < 0 || i_end < 0)
+    fail("rt60: the energy decay curve does not fall 25 dB before the last 5% of the buffer (signal too short or not decaying)");
+  double n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (int64_t i = i5; i <= i_end; i++) {
+    double t = double(i) / double(buf.sr), v = d[i];
+    n += 1;
+    sx += t;
+    sy += v;
+    sxx += t * t;
+    sxy += t * v;
+  }
+  double slope = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+  if (!(slope < 0.0)) fail("rt60: decay slope is not negative");
+  return -60.0 / slope;
+}
+
+// Frame-by-frame YIN pitch track written as CSV: t_sec,f0_hz,rms_db (f0 = 0 when unvoiced/silent).
+void save_pitch_track_csv(const Buffer &buf, const std::string &path, double hop_sec, double win_sec, double fmin,
+                          double fmax, bool dry_run) {
+  if (path.empty()) fail("pitch_track_csv: empty path");
+  check_finite(hop_sec, "hop_sec");
+  check_finite(win_sec, "win_sec");
+  if (hop_sec < 0.001 || hop_sec > 1.0) fail("pitch_track_csv: hop_sec must be in [0.001, 1]");
+  if (win_sec < 0.01 || win_sec > 2.0) fail("pitch_track_csv: win_sec must be in [0.01, 2]");
+  int64_t w = static_cast<int64_t>(std::llround(win_sec * double(buf.sr)));
+  int64_t hop = std::max<int64_t>(1, static_cast<int64_t>(std::llround(hop_sec * double(buf.sr))));
+  if (w > buf.frames) fail("pitch_track_csv: win_sec is longer than the buffer");
+  Buffer mono = to_mono(buf);
+  std::ostringstream os;
+  os << "# t_sec,f0_hz,rms_db\n" << std::setprecision(8);
+  Buffer seg(buf.sr, 1, w);
+  for (int64_t start = 0; start + w <= mono.frames; start += hop) {
+    std::memcpy(seg.chan_ptr(0), mono.chan_ptr(0) + start, std::size_t(w) * sizeof(float));
+    double f0 = compute_pitch(seg, fmin, fmax, 0);
+    double r = compute_rms(seg, 0);
+    os << (double(start) + 0.5 * double(w)) / double(buf.sr) << "," << f0 << ","
+       << 20.0 * std::log10(std::max(r, 1e-10)) << "\n";
+  }
+  if (dry_run) {
+    std::cerr << "lmaudio: --dry-run: would write " << path << "\n";
+    return;
+  }
+  ensure_parent_dir(path);
+  std::ofstream out(path, std::ios::binary);
+  if (!out) fail("cannot write '" + path + "'");
+  out << os.str();
+  finish_write(out, path);
 }
 
 }  // namespace lmaudio

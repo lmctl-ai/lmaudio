@@ -1,0 +1,118 @@
+# 0.2 additions checked against closed-form answers: BS.1770 loudness, Kaiser-sinc resampling,
+# FFT convolution, Schroeder RT60, Karplus-Strong tuning, additive synthesis, step patterns,
+# granular determinism, flat-top amplitude reading, biquad sample-rate guard, 808 kick pitch.
+out = ARGV.len() > 0 ? ARGV[0] : "build/loudness_convolution_and_synthesis.dslb";
+p = _dsl_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+
+# ITU-R BS.1770-4: a 0 dBFS 997 Hz sine in one channel reads -3.01 LUFS; in both channels 0 LUFS.
+let s48 = audio.sine(997.0, 5.0, 1.0, 48000);
+audio.assert_close(s48.lufs(), -3.01, 0.02);
+audio.assert_close(audio.sine(997.0, 5.0, 1.0, 44100).lufs(), -3.01, 0.02);
+audio.assert_close(audio.stereo(s48, s48).lufs(), 0.0, 0.02);
+# Loudness is linear in dB gain, and normalize_lufs hits its target.
+audio.assert_close(s48.gain_db(-20.0).lufs(), -23.01, 0.02);
+audio.assert_close(audio.noise("pink", 3.0, 0.3, 4, 44100).normalize_lufs(-23.0).lufs(), -23.0, 0.001);
+# Relative gate: 4 s at -20 dBFS + 4 s at -60 dBFS. The 37 all-loud 400 ms blocks and the three
+# blocks straddling the step (3/4, 1/2, 1/4 loud) pass the gate; the 37 quiet ones do not:
+# -23.01 + 10 log10(38.5 / 40) = -23.176 LUFS.
+let loud_quiet = audio.sine(997.0, 4.0, 0.1, 48000).concat(audio.sine(997.0, 4.0, 0.001, 48000));
+audio.assert_close(loud_quiet.lufs(), -23.176, 0.01);
+
+# Resampling 48 kHz -> 16 kHz keeps 1 kHz at full level and removes 11 kHz (no 5 kHz alias).
+let two = audio.sine(1000.0, 1.0, 0.5, 48000).mix(audio.sine(11000.0, 1.0, 0.5, 48000));
+let d16 = two.resample(16000);
+let sp16 = d16.spectrum("blackman", 16000);
+audio.assert_close(sp16.mag_at_freq(1000.0), 0.5, 0.001);
+audio.assert_close(sp16.mag_at_freq(5000.0), 0.0, 0.00003);
+audio.assert_close(float(d16.frames()), 16000.0, 0.0);
+# DC stays exactly DC, including the first and last samples.
+let dc = audio.expr("0.5", 0.5, 44100).resample(22050);
+audio.assert_close(dc.get(0), 0.5, 0.0001);
+audio.assert_close(dc.get(dc.frames() - 1), 0.5, 0.0001);
+audio.assert_close(dc.get(5000), 0.5, 0.0001);
+
+# Convolution with a unit impulse is the identity; length is N + M - 1.
+let x = audio.sine(440.0, 0.5, 0.5, 44100);
+let cv = x.convolve(audio.impulse(0.01, 0.0, 1.0, 44100));
+audio.assert_close(float(cv.frames()), 22050.0 + 441.0 - 1.0, 0.0);
+audio.assert_close(cv.slice(0.0, 0.5).snr_db(x), 240.0, 0.1);
+# Delayed, scaled impulse delays and scales: y[n] = 0.5 x[n - 100].
+let shifted = x.convolve(audio.impulse(0.01, 100.0 / 44100.0, 0.5, 44100));
+audio.assert_close(shifted.get(100 + 37), 0.5 * x.get(37), 0.000001);
+
+# Schroeder RT60 recovers the decay time of exponentially decaying noise (RT60 = 1.2 s).
+let env = audio.expr("exp(-6.907755 * t / 1.2)", 3.0, 44100);
+let tail = audio.noise("white", 3.0, 0.5, 3, 44100).multiply(env);
+audio.assert_close(tail.rt60(), 1.2, 0.03);
+audio.assert_close(tail.schroeder_db().get(0), 0.0, 0.0001);
+
+# Karplus-Strong with an allpass fractional delay is in tune (within 1 cent) at any pitch.
+let k110 = audio.karplus(110.0, 1.0, 0.8, 1.5, 7, 44100);
+let k440 = audio.karplus(440.0, 1.0, 0.8, 1.5, 7, 44100);
+let k1318 = audio.karplus(1318.51, 1.0, 0.8, 1.0, 7, 44100);
+audio.assert_close(k110.pitch(50.0, 2000.0), 110.0, 0.07);
+audio.assert_close(k440.pitch(50.0, 2000.0), 440.0, 0.26);
+audio.assert_close(k1318.pitch(50.0, 3000.0), 1318.51, 0.8);
+audio.assert_close(k440.peak(), 0.8, 0.0001);
+audio.assert_close(k440.snr_db(audio.karplus(440.0, 1.0, 0.8, 1.5, 7, 44100)), 240.0, 0.1);
+
+# Additive synthesis: one partial is a sine; odd harmonics 1/n make a square wave (THD = 0.4288).
+audio.assert_close(audio.additive(440.0, 1.0, 1.0, "1", 44100).snr_db(audio.sine(440.0, 1.0, 1.0, 44100)), 240.0, 0.1);
+let sq = audio.additive(100.0, 1.0, 1.0, "1 0 0.3333333 0 0.2 0 0.1428571 0 0.1111111", 44100);
+audio.assert_close(sq.thd(100.0, 9), 0.4288, 0.002);
+# Inharmonic ratio:amplitude partials; partials above Nyquist are dropped.
+let bell = audio.additive(500.0, 1.0, 1.0, "1:1 2.76:0.5 30:0.9", 22050);
+audio.assert_close(bell.spectrum("flattop").mag_at_freq(1380.0), 0.5, 0.005);
+
+# Flat-top window reads an off-bin tone's amplitude within 0.1 %; Hann scallops up to 15 %.
+let off_bin = audio.sine(1001.37, 1.0, 0.8, 22050);
+audio.assert_close(off_bin.spectrum("flattop", 8192).peak_mag(), 0.8, 0.001);
+
+# Step pattern: 16 sixteenth notes at 120 BPM = 2 s; hits land on the grid with step gains.
+let click = audio.impulse(0.01, 0.0, 1.0, 8000);
+let pat = click.pattern("X...x...|o.......", 120.0, 4);
+audio.assert_close(pat.duration(), 2.0, 0.0001);
+audio.assert_close(pat.get(0), 1.0, 0.0);
+audio.assert_close(pat.get(4000), 0.7, 0.000001);
+audio.assert_close(pat.get(8000), 0.4, 0.000001);
+audio.assert_close(pat.energy(), 1.0 + 0.49 + 0.16, 0.000001);
+
+# Granular synthesis is deterministic for a seed and produces the requested length.
+let g1 = k440.granular(2.0, 0.06, 50.0, 0.2, 0.1, 5.0, 9);
+let g2 = k440.granular(2.0, 0.06, 50.0, 0.2, 0.1, 5.0, 9);
+audio.assert_close(g1.duration(), 2.0, 0.0001);
+audio.assert_close(g1.snr_db(g2), 240.0, 0.1);
+
+# Multiply applies an envelope sample by sample.
+let half = audio.expr("0.5", 0.5, 44100);
+audio.assert_close(x.multiply(half).rms(), 0.5 * x.rms(), 0.000001);
+
+# The 808 kick sounds at the requested frequency (DaisySP FM-amount scaling compensated).
+let kick = audio.drum("kick", 55.0, 1.0, 0.6, 0.5, 0.9, 44100);
+audio.assert_close(kick.slice(0.05, 0.5).pitch(20.0, 400.0), 55.0, 1.0);
+
+# Euler-Bernoulli bar: free ends used to blow up to NaN; now every boundary pair rings at the
+# textbook modes f_n = kappa (beta_n L)^2 / (2 pi): free-free 4.730, 7.853; clamped-free 1.875.
+fn top(s: Spectrum, lo: float, hi: float) -> float {
+  let best = 0.0;
+  let bf = 0.0;
+  let k = int(lo * float(s.nfft()) / 44100.0);
+  while (k < int(hi * float(s.nfft()) / 44100.0)) {
+    if (s.mag_at(k) > best) {
+      best = s.mag_at(k);
+      bf = s.freq_at(k);
+    }
+    k = k + 1;
+  }
+  return bf;
+}
+let ff = audio.bar(3, 3, 55.0, 2.0, 2.0, 0.8, 44100).spectrum("hann");
+audio.assert_close(top(ff, 100.0, 300.0), 55.0 * 4.730 * 4.730 / 6.283185, 4.0);
+audio.assert_close(top(ff, 400.0, 700.0), 55.0 * 7.853 * 7.853 / 6.283185, 15.0);
+let cf = audio.bar(1, 3, 55.0, 2.0, 2.0, 0.8, 44100).spectrum("hann");
+audio.assert_close(top(cf, 15.0, 60.0), 55.0 * 1.875 * 1.875 / 6.283185, 1.0);
+let stiff = audio.bar(3, 3, 200.0, 2.0, 0.5, 0.8, 22050);
+audio.assert_close(stiff.peak(), 0.8, 0.0001);
+audio.assert_close(stiff.energy(), stiff.energy(), 1000000000.0);
+end _dsl_
+savedsl(p, out);

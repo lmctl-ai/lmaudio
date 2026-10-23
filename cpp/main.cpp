@@ -192,6 +192,23 @@ void register_host(dslvm::Registry &r, Host &h) {
   method(r, "Audio", "biquad_design", {"string", "float", "float", "int"}, "Biquad",
          [&](void *, Args &a) { return h.bq(lmaudio::design_biquad(a[0].s, a[1].f, a[2].f, 0.0, a[3].i)); });
 
+  method(r, "Audio", "print", {"string"}, "void", [&](void *, Args &a) {
+    std::cout << a[0].s << "\n";
+    std::cout.flush();
+    return Value::none();
+  });
+  method(r, "Audio", "karplus", {"float", "float", "float", "float", "int", "int"}, "Buffer", [&](void *, Args &a) {
+    return h.buf(lmaudio::make_karplus(a[0].f, a[1].f, a[2].f, a[3].f, a[4].i, a[5].i));
+  });
+  method(r, "Audio", "karplus", {"float", "float", "float", "float"}, "Buffer", [&](void *, Args &a) {
+    return h.buf(lmaudio::make_karplus(a[0].f, a[1].f, a[2].f, a[3].f, 1, 44100));
+  });
+  method(r, "Audio", "additive", {"float", "float", "float", "string", "int"}, "Buffer", [&](void *, Args &a) {
+    return h.buf(lmaudio::make_additive(a[0].f, a[1].f, a[2].f, a[3].s, a[4].i));
+  });
+  method(r, "Audio", "additive", {"float", "float", "float", "string"}, "Buffer", [&](void *, Args &a) {
+    return h.buf(lmaudio::make_additive(a[0].f, a[1].f, a[2].f, a[3].s, 44100));
+  });
   method(r, "Audio", "assert_close", {"float", "float", "float"}, "void", [&](void *, Args &a) {
     if (!std::isfinite(a[2].f) || a[2].f < 0.0) throw dslvm::Error("Audio.assert_close: tolerance must be >= 0");
     double d = std::abs(a[0].f - a[1].f);
@@ -235,6 +252,28 @@ void register_host(dslvm::Registry &r, Host &h) {
          [&](void *s, Args &a) { return h.buf(lmaudio::apply_normalize(B(s), a[0].f)); });
   method(r, "Buffer", "normalize", {}, "Buffer",
          [&](void *s, Args &) { return h.buf(lmaudio::apply_normalize(B(s), 0.99)); });
+  method(r, "Buffer", "lufs", {}, "float", [&](void *s, Args &) { return Value::real(lmaudio::compute_lufs(B(s))); });
+  method(r, "Buffer", "normalize_lufs", {"float"}, "Buffer",
+         [&](void *s, Args &a) { return h.buf(lmaudio::apply_normalize_lufs(B(s), a[0].f)); });
+  method(r, "Buffer", "multiply", {"Buffer"}, "Buffer",
+         [&](void *s, Args &a) { return h.buf(lmaudio::apply_multiply(B(s), arg_buf(a[0]))); });
+  method(r, "Buffer", "convolve", {"Buffer"}, "Buffer",
+         [&](void *s, Args &a) { return h.buf(lmaudio::apply_convolve(B(s), arg_buf(a[0]))); });
+  method(r, "Buffer", "pattern", {"string", "float", "int"}, "Buffer",
+         [&](void *s, Args &a) { return h.buf(lmaudio::apply_pattern(B(s), a[0].s, a[1].f, a[2].i)); });
+  method(r, "Buffer", "pattern", {"string", "float"}, "Buffer",
+         [&](void *s, Args &a) { return h.buf(lmaudio::apply_pattern(B(s), a[0].s, a[1].f, 4)); });
+  method(r, "Buffer", "granular", {"float", "float", "float", "float", "float", "float", "int"}, "Buffer",
+         [&](void *s, Args &a) {
+           return h.buf(lmaudio::apply_granular(B(s), a[0].f, a[1].f, a[2].f, a[3].f, a[4].f, a[5].f, a[6].i));
+         });
+  method(r, "Buffer", "schroeder_db", {}, "Buffer",
+         [&](void *s, Args &) { return h.buf(lmaudio::compute_schroeder_db(B(s), 0)); });
+  method(r, "Buffer", "rt60", {}, "float", [&](void *s, Args &) { return Value::real(lmaudio::compute_rt60(B(s), 0)); });
+  method(r, "Buffer", "pitch_track_csv", {"string", "float", "float", "float", "float"}, "Buffer", [&](void *s, Args &a) {
+    lmaudio::save_pitch_track_csv(B(s), a[0].s, a[1].f, a[2].f, a[3].f, a[4].f, h.dry_run);
+    return Value::object("Buffer", s);
+  });
   method(r, "Buffer", "normalize_rms", {"float"}, "Buffer",
          [&](void *s, Args &a) { return h.buf(lmaudio::apply_normalize_rms(B(s), a[0].f)); });
 
