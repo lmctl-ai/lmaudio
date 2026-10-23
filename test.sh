@@ -179,7 +179,7 @@ end _dsl_
 savedsl(p, "$WORK/wavedge.dslb");
 LMS
 "$LMSCRIPT" "$WORK/wavedge.lms" >/dev/null && "$HOST" --dsl "$WORK/wavedge.dslb" >/dev/null 2>"$WORK/wavedge.err" || fail "WAV edge-case program"
-[ "$(wc -c <"$WORK/odd24.wav")" = 48 ] || fail "24-bit mono 1-frame WAV should be 44 + 3 + 1 pad bytes, got $(wc -c <"$WORK/odd24.wav")"
+[ "$(wc -c <"$WORK/odd24.wav" | tr -d " ")" = 48 ] || fail "24-bit mono 1-frame WAV should be 44 + 3 + 1 pad bytes, got $(wc -c <"$WORK/odd24.wav")"
 grep -q "clipped while writing $WORK/hot.wav" "$WORK/wavedge.err" || fail "no clipping warning on stderr: $(cat "$WORK/wavedge.err")"
 head -c 4044 "$WORK/full.wav" >"$WORK/trunc.wav"
 cat >"$WORK/trunc.lms" <<LMS
