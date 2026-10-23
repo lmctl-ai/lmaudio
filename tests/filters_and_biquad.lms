@@ -1,0 +1,44 @@
+# RBJ Audio-EQ-Cookbook biquads, analytical transfer function vs time-domain filtering, DaisySP SVF and Moog ladder.
+out = ARGV.len() > 0 ? ARGV[0] : "build/filters_and_biquad.dslb";
+p = _dsl_ cli="lmaudio";
+# 2nd-order Butterworth lowpass filter at 1000 Hz (Q = 1/sqrt(2) = 0.70710678)
+let lpf = audio.biquad_design("lowpass", 1000.0, 0.7071067811865, 44100);
+audio.assert_close(lpf.gain_at(0.0), 1.0, 0.0001);
+audio.assert_close(lpf.db_at(0.0), 0.0, 0.001);
+audio.assert_close(lpf.gain_at(1000.0), 0.70710678, 0.0005);
+audio.assert_close(lpf.db_at(1000.0), -3.0103, 0.01);
+audio.assert_close(lpf.phase_deg_at(1000.0), -90.0, 0.05);
+
+# Verify time-domain steady-state sine response matches |H(e^{jw})|
+let s_cut = lpf.apply(audio.sine(1000.0, 0.5, 1.0, 44100)).slice(0.1, 0.45);
+# Input RMS = 1/sqrt(2) = 0.70710678; after -3.0103 dB (1/sqrt(2)), output RMS = 0.5
+audio.assert_close(s_cut.rms(), 0.5, 0.003);
+
+let s_pass = lpf.apply(audio.sine(150.0, 0.5, 1.0, 44100)).slice(0.1, 0.45);
+audio.assert_close(s_pass.rms() / 0.70710678, lpf.gain_at(150.0), 0.003);
+
+let s_stop = lpf.apply(audio.sine(5000.0, 0.5, 1.0, 44100)).slice(0.1, 0.45);
+audio.assert_close(s_stop.rms() / 0.70710678, lpf.gain_at(5000.0), 0.003);
+
+# Notch filter at 1000 Hz removes 1000 Hz component while preserving 250 Hz component
+let notch = audio.biquad_design("notch", 1000.0, 4.0, 44100);
+audio.assert_close(notch.gain_at(1000.0), 0.0, 0.0001);
+let dual = audio.sine(250.0, 0.6, 0.8, 44100).mix(audio.sine(1000.0, 0.6, 0.8, 44100));
+let notched = notch.apply(dual).slice(0.15, 0.55);
+audio.assert_close(notched.rms(), 0.8 * 0.70710678, 0.005);
+
+# Peaking EQ filter (+6 dB at 1000 Hz) has gain 10^(6/20) = 1.995262 at 1000 Hz and 1.0 at DC
+let pk = audio.biquad_design("peak", 1000.0, 2.0, 6.0, 44100);
+audio.assert_close(pk.db_at(1000.0), 6.0, 0.01);
+audio.assert_close(pk.gain_at(0.0), 1.0, 0.0001);
+
+# DaisySP State-Variable Filter and Huovilainen Moog Ladder Filter
+let svf_lp = dual.svf("lowpass", 400.0, 0.2).slice(0.1, 0.5);
+let svf_hp = dual.svf("highpass", 600.0, 0.2).slice(0.1, 0.5);
+audio.assert_close(svf_lp.pitch(), 250.0, 2.0);
+audio.assert_close(svf_hp.pitch(), 1000.0, 5.0);
+
+let moog_lp = dual.ladder(400.0, 0.2, 1.0, "lp24").slice(0.1, 0.5);
+audio.assert_close(moog_lp.pitch(), 250.0, 2.0);
+end _dsl_
+savedsl(p, out);

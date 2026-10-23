@@ -1,0 +1,64 @@
+# Animated Wavefolding & Resonant Filter Morphing:
+# 24-frame animated GIF (via lmplot + ffmpeg) showing simultaneous time-domain waveform folding
+# and Fourier harmonic emergence, paired with audio/harmonic_morph_anim.wav.
+mkdir("build");
+mkdir("build/morph_frames");
+mkdir("audio");
+mkdir("images");
+
+a = _dsl_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+let sr = 22050;
+let f0 = 220.0;
+let base = audio.sine(f0, 0.12, 0.85, sr);
+let full_audio = audio.silence(sr, 0.01);
+
+for (k in range(0, 24)) {
+  # Morph drive from 0.6 -> 4.2 -> 1.0 across 24 frames
+  let u = float(k) / 23.0;
+  let tri_u = 0.0;
+  if (u < 0.65) {
+    tri_u = u / 0.65;
+  } else {
+    tri_u = 1.0 - (u - 0.65) / 0.35;
+  }
+  let gain = 0.6 + 3.6 * tri_u;
+  let cutoff = 600.0 + 4200.0 * tri_u;
+
+  let seg = base.wavefold(gain, 0.08 * tri_u).ladder(cutoff, 0.35, 1.0, "lp24").fade(0.004, 0.004);
+  seg.slice(0.02, 0.034).save_csv("build/morph_frames/wave_" + str(k) + ".csv");
+  seg.spectrum("hann", 2048).save_csv("build/morph_frames/spec_" + str(k) + ".csv", 4000.0);
+  full_audio = full_audio.concat(seg);
+}
+full_audio = full_audio.reverb(0.78, 6000.0, 0.22).normalize(0.92);
+full_audio.save_wav("audio/harmonic_morph_anim.wav", 16);
+end _dsl_
+savedsl(a, "build/harmonic_morph_anim.dslb");
+r1 = system ${dsl_cli(a)} --dsl build/harmonic_morph_anim.dslb;
+assert(r1.code == 0);
+
+draw = _dsl_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+plot.cmd("set datafile separator ','");
+for (k in range(0, 24)) {
+  plot.png("build/morph_frames/f" + str(k) + ".png", 760, 480);
+  plot.cmd("set multiplot layout 2,1 title 'Real-Time Wavefolding and Ladder Filter Morph (Frame " + str(k + 1) + "/24)' font ',12'");
+  plot.cmd("set border 3; set tics nomirror; set grid lc rgb '#e0e0e0'; unset key");
+
+  plot.cmd("set title 'Time-Domain Folded Waveform (220 Hz)'; set xlabel 'Time (ms)'; set ylabel 'Amplitude'");
+  plot.cmd("set xrange [0:13.6]; set yrange [-1.05:1.05]");
+  plot.cmd("plot 'build/morph_frames/wave_" + str(k) + ".csv' u ($1*1000):2 w l lw 2.2 lc rgb '#d62728'");
+
+  plot.cmd("set title 'Instantaneous FFT Harmonic Spectrum'; set xlabel 'Frequency (Hz)'; set ylabel 'Magnitude (dB)'");
+  plot.cmd("set xrange [0:3800]; set yrange [-75:0]");
+  plot.cmd("plot 'build/morph_frames/spec_" + str(k) + ".csv' u 1:3 w l lw 2.0 lc rgb '#1f77b4'");
+
+  plot.cmd("unset multiplot");
+  plot.close();
+}
+end _dsl_
+savedsl(draw, "build/harmonic_morph_anim-draw.dslb");
+r2 = system ${dsl_cli(draw)} --dsl build/harmonic_morph_anim-draw.dslb;
+assert(r2.code == 0);
+
+r3 = system ffmpeg -y -loglevel error -framerate 10 -i build/morph_frames/f%d.png -vf "split[a][b];[a]palettegen=max_colors=96[p];[b][p]paletteuse=dither=none" images/harmonic_morph_anim.gif;
+assert(r3.code == 0);
+print("wrote images/harmonic_morph_anim.gif and audio/harmonic_morph_anim.wav");

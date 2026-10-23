@@ -1,0 +1,36 @@
+# Exact FFT bin magnitudes, Parseval's theorem, Bluestein arbitrary-N FFT, IFFT round-trip, and STFT ridges.
+out = ARGV.len() > 0 ? ARGV[0] : "build/fft_and_parseval.dslb";
+p = _dsl_ cli="lmaudio";
+# Power-of-2 exact FFT bin test: sr = 4096 Hz, N = 4096 samples (1.0 s)
+let x = audio.expr("0.6 * sin(2 * pi * 100 * t) + 0.3 * cos(2 * pi * 400 * t)", 1.0, 4096);
+let sp = x.spectrum("rect");
+audio.assert_close(sp.freq_at(100), 100.0, 0.0001);
+audio.assert_close(sp.mag_at(100), 0.6, 0.0001);
+audio.assert_close(sp.mag_at(400), 0.3, 0.0001);
+audio.assert_close(sp.mag_at(250), 0.0, 0.0001);
+
+# Parseval theorem: sum |x[n]|^2 == (1/N) sum |X[k]|^2
+audio.assert_close(sp.parseval_energy(), x.energy(), 0.01);
+audio.assert_close(x.energy(), 4096.0 * (0.36 * 0.5 + 0.09 * 0.5), 0.05);
+
+# Inverse FFT exact reconstruction
+let x_rec = sp.ifft();
+if (x_rec.snr_db(x) < 120.0) { audio.assert_close(x_rec.snr_db(x), 120.0, 0.0); }
+
+# Non-power-of-2 Bluestein chirp-z FFT test: sr = 1000 Hz, N = 1000 samples
+let y = audio.expr("0.5 * sin(2 * pi * 70 * t) + 0.4 * cos(2 * pi * 230 * t)", 1.0, 1000);
+let spy = y.spectrum("rect");
+audio.assert_close(spy.mag_at(70), 0.5, 0.0001);
+audio.assert_close(spy.mag_at(230), 0.4, 0.0001);
+audio.assert_close(spy.parseval_energy(), y.energy(), 0.01);
+let y_rec = spy.ifft();
+if (y_rec.snr_db(y) < 120.0) { audio.assert_close(y_rec.snr_db(y), 120.0, 0.0); }
+
+# STFT spectrogram ridge tracking on a linear chirp (200 Hz -> 2200 Hz over 1.0 s)
+let ch = audio.chirp(200.0, 2200.0, 1.0, 0.8, "linear", 16384);
+let sg = ch.spectrogram(512, 128);
+let f_mid = sg.frames() / 2;
+let t_mid = sg.time_at(f_mid);
+audio.assert_close(sg.ridge_freq(f_mid), 200.0 + 2000.0 * t_mid, 25.0);
+end _dsl_
+savedsl(p, out);

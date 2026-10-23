@@ -1,0 +1,75 @@
+# West-Coast Buchla Wavefolding (DaisySP Wavefolder) + Fons Adriaensen Zita-Rev1 FDN Reverb (Soundpipe zitarev):
+# nonlinear harmonic generation, THD verification, and studio reverb decay tail.
+mkdir("build");
+mkdir("audio");
+mkdir("images");
+
+a = _dsl_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+let sr = 22050;
+let f0 = 220.0;
+
+let clean = audio.sine(f0, 0.5, 0.9, 44100);
+let fold_mild = clean.wavefold(1.8, 0.0);
+let fold_hard = clean.wavefold(3.6, 0.15);
+
+# Verify THD increases with wavefolder drive
+let thd0 = clean.thd(f0, 9);
+let thd1 = fold_mild.thd(f0, 9);
+let thd2 = fold_hard.thd(f0, 9);
+if (thd1 <= thd0) { audio.assert_close(thd1, thd0, 0.0); }
+if (thd2 <= thd1) { audio.assert_close(thd2, thd1, 0.0); }
+
+clean.slice(0.0, 0.010).save_csv("build/wf_clean_wave.csv");
+fold_mild.slice(0.0, 0.010).save_csv("build/wf_mild_wave.csv");
+fold_hard.slice(0.0, 0.010).save_csv("build/wf_hard_wave.csv");
+
+fold_mild.spectrum("hann", 8192).save_csv("build/wf_mild_spec.csv", 3500.0);
+fold_hard.spectrum("hann", 8192).save_csv("build/wf_hard_spec.csv", 3500.0);
+
+# Measure FDN hall reverb decay from a 12 ms noise burst excitation
+let burst = audio.noise("white", 0.012, 0.9, 42, sr).pad(0.02, 1.75);
+let ir = burst.reverb(0.88, 6000.0, 1.0).normalize(0.92);
+ir.save_csv("build/zita_ir.csv", 1800);
+
+# Synthesize West-Coast wavefolded bongo/buchla motif into Zita-Rev1 hall reverb (2.8 s, 123 KB)
+let m1 = audio.sine(220.0, 0.45, 0.85, sr).adsr(0.005, 0.15, 0.2, 0.2).wavefold(3.2, 0.0);
+let m2 = audio.sine(330.0, 0.45, 0.85, sr).adsr(0.005, 0.15, 0.2, 0.2).wavefold(2.8, 0.1);
+let m3 = audio.sine(440.0, 0.60, 0.85, sr).adsr(0.005, 0.20, 0.3, 0.3).wavefold(3.6, 0.0);
+let dry_seq = m1.concat(m2).concat(m3).pad(0.0, 1.3);
+let wet_hall = dry_seq.zitarev(2.6, 1.8, 5000.0, 0.42).normalize(0.92);
+wet_hall.save_wav("audio/reverb_and_wavefolder.wav", 16);
+wet_hall.save_csv("build/zita_motif_wave.csv", 1800);
+end _dsl_
+savedsl(a, "build/reverb_and_wavefolder.dslb");
+r1 = system ${dsl_cli(a)} --dsl build/reverb_and_wavefolder.dslb;
+assert(r1.code == 0);
+
+draw = _dsl_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+plot.png("images/reverb_and_wavefolder.png", 980, 660);
+plot.cmd("set datafile separator ','");
+plot.cmd("set multiplot layout 2,2 title 'West-Coast Buchla Wavefolding and Zita-Rev1 Studio FDN Reverb' font ',13'");
+plot.cmd("set border 3; set tics nomirror; set grid lc rgb '#e0e0e0'");
+
+plot.cmd("set title 'Wavefolder Time-Domain Crests (220 Hz Input)'; set xlabel 'Time (ms)'; set ylabel 'Amplitude'");
+plot.cmd("set xrange [0:10]; set yrange [-1.05:1.05]; set key top right box opaque");
+plot.cmd("plot 'build/wf_clean_wave.csv' u ($1*1000):2 w l lw 1.6 lc rgb '#7f7f7f' title 'Input Sine', 'build/wf_mild_wave.csv' u ($1*1000):2 w l lw 2.0 lc rgb '#1f77b4' title 'Fold Gain = 1.8', 'build/wf_hard_wave.csv' u ($1*1000):2 w l lw 2.0 lc rgb '#d62728' title 'Fold Gain = 3.6'");
+
+plot.cmd("set title 'Wavefolded Harmonic Spectra (Rich Upper Partials)'; set xlabel 'Frequency (Hz)'; set ylabel 'Magnitude (dB)'");
+plot.cmd("set xrange [0:3400]; set yrange [-75:0]; set key top right box opaque");
+plot.cmd("plot 'build/wf_hard_spec.csv' u 1:3 w l lw 1.8 lc rgb '#d62728' title 'Hard Fold (gain=3.6)', 'build/wf_mild_spec.csv' u 1:3 w l lw 1.8 lc rgb '#1f77b4' title 'Mild Fold (gain=1.8)'");
+
+plot.cmd("set title 'Zita-Rev1 FDN Reverb Impulse Response (RT60 = 1.8 s)'; set xlabel 'Time (s)'; set ylabel 'Amplitude'");
+plot.cmd("set xrange [0:1.8]; set yrange [-1.0:1.0]; unset key");
+plot.cmd("plot 'build/zita_ir.csv' u 1:2 w l lw 1.2 lc rgb '#2ca02c'");
+
+plot.cmd("set title 'Wavefolded Motif with Zita-Rev1 Reverberant Tail'; set xlabel 'Time (s)'; set ylabel 'Amplitude'");
+plot.cmd("set xrange [0:2.8]; set yrange [-1.0:1.0]; unset key");
+plot.cmd("plot 'build/zita_motif_wave.csv' u 1:2 w l lw 1.2 lc rgb '#9467bd'");
+
+plot.cmd("unset multiplot");
+plot.close();
+end _dsl_
+savedsl(draw, "build/reverb_and_wavefolder-draw.dslb");
+r2 = system ${dsl_cli(draw)} --dsl build/reverb_and_wavefolder-draw.dslb;
+assert(r2.code == 0);
+print("wrote images/reverb_and_wavefolder.png and audio/reverb_and_wavefolder.wav");

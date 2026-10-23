@@ -1,0 +1,51 @@
+# Linear vs Exponential (Log-Octave) Swept-Sine Chirps (150 Hz -> 4200 Hz):
+# STFT time-frequency spectrogram comparison and instantaneous ridge frequency tracking.
+mkdir("build");
+mkdir("audio");
+mkdir("images");
+
+a = _dsl_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+let sr = 22050;
+let dur = 1.25;
+
+let ch_lin = audio.chirp(150.0, 4200.0, dur, 0.85, "linear", sr).fade(0.02, 0.02);
+let ch_log = audio.chirp(150.0, 4200.0, dur, 0.85, "log", sr).fade(0.02, 0.02);
+
+let sg_lin = ch_lin.spectrogram(512, 128, "hann", 4800.0);
+let sg_log = ch_log.spectrogram(512, 128, "hann", 4800.0);
+
+# At t = dur/2, linear chirp is at (150 + 4200)/2 = 2175 Hz, while log chirp is at sqrt(150 * 4200) = 793.7 Hz
+let mid_f = sg_lin.frames() / 2;
+audio.assert_close(sg_lin.ridge_freq(mid_f), 2175.0, 45.0);
+audio.assert_close(sg_log.ridge_freq(mid_f), 793.7, 45.0);
+
+sg_lin.save_csv("build/chirp_lin_sgram.csv", -80.0);
+sg_log.save_csv("build/chirp_log_sgram.csv", -80.0);
+
+let both = ch_lin.pad(0.0, 0.1).concat(ch_log).normalize(0.92);
+both.save_wav("audio/chirp_spectrogram.wav", 16);
+end _dsl_
+savedsl(a, "build/chirp_spectrogram.dslb");
+r1 = system ${dsl_cli(a)} --dsl build/chirp_spectrogram.dslb;
+assert(r1.code == 0);
+
+draw = _dsl_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+plot.png("images/chirp_spectrogram.png", 980, 620);
+plot.cmd("set datafile separator ','");
+plot.cmd("set multiplot layout 1,2 title 'Linear vs Exponential Swept-Sine Chirp STFT Spectrograms (150 Hz -> 4200 Hz)' font ',13'");
+plot.cmd("set border 3; set tics nomirror; set xrange [0:1.25]; set yrange [0:4600]; set cbrange [-75:0]; set cblabel 'dB'");
+plot.cmd("set pm3d map; set palette defined (0 '#081d58', 0.25 '#225ea8', 0.5 '#41b6c4', 0.75 '#c7e9b4', 0.9 '#fed976', 1 '#bd0026')");
+
+plot.cmd("set title 'Linear Frequency Sweep: f(t) = f0 + k*t'; set xlabel 'Time (s)'; set ylabel 'Frequency (Hz)'");
+plot.cmd("splot 'build/chirp_lin_sgram.csv' u 1:2:3 notitle");
+
+plot.cmd("set title 'Exponential (Octave-Rate) Sweep: f(t) = f0 * (f1/f0)^{t/T}'; set xlabel 'Time (s)'; set ylabel 'Frequency (Hz)'");
+plot.cmd("splot 'build/chirp_log_sgram.csv' u 1:2:3 notitle");
+
+plot.cmd("unset multiplot");
+plot.close();
+end _dsl_
+savedsl(draw, "build/chirp_spectrogram-draw.dslb");
+r2 = system ${dsl_cli(draw)} --dsl build/chirp_spectrogram-draw.dslb;
+assert(r2.code == 0);
+print("wrote images/chirp_spectrogram.png and audio/chirp_spectrogram.wav");

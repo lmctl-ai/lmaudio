@@ -1,0 +1,13 @@
+# Windows checkouts must not convert to CRLF: sdk.lock pins the vendored
+# header by sha256 and --dsl-schema --json is asserted byte-identical.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.wav binary
+*.mp3 binary
+*.ogg binary
+*.flac binary
+*.dslb binary
+*.ttf binary

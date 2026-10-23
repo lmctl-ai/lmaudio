@@ -1,0 +1,57 @@
+# WAV 16/24/32f round-trip accuracy, stereo constant-power panning, and buffer editing/resampling.
+out = ARGV.len() > 0 ? ARGV[0] : "build/wav_and_editing.dslb";
+p = _dsl_ cli="lmaudio";
+let orig = audio.sine(440.0, 0.25, 0.75, 22050).fade(0.01, 0.02);
+
+# WAV round-trip: 16-bit, 24-bit, and 32-bit IEEE float
+orig.save_wav("build/test_16.wav", 16);
+orig.save_wav("build/test_24.wav", 24);
+orig.save_wav("build/test_32f.wav", 32);
+
+let w16 = audio.load_wav("build/test_16.wav");
+let w24 = audio.load_wav("build/test_24.wav");
+let w32 = audio.load_wav("build/test_32f.wav");
+
+if (w16.snr_db(orig) < 85.0) { audio.assert_close(w16.snr_db(orig), 85.0, 0.0); }
+if (w24.snr_db(orig) < 130.0) { audio.assert_close(w24.snr_db(orig), 130.0, 0.0); }
+if (w32.snr_db(orig) < 200.0) { audio.assert_close(w32.snr_db(orig), 200.0, 0.0); }
+
+# Stereo panning and constant-power energy conservation
+let panned_center = orig.pan(0.0);
+audio.assert_close(float(panned_center.channels()), 2.0, 0.01);
+audio.assert_close(panned_center.energy(0) + panned_center.energy(1), orig.energy(), 0.01);
+
+let panned_left = orig.pan(-1.0);
+audio.assert_close(panned_left.rms(0), orig.rms(), 0.0002);
+audio.assert_close(panned_left.rms(1), 0.0, 0.0002);
+
+# Stereo WAV round-trip
+panned_center.save_wav("build/test_stereo.wav", 16);
+let st_loaded = audio.load_wav("build/test_stereo.wav");
+audio.assert_close(float(st_loaded.channels()), 2.0, 0.01);
+if (st_loaded.channel(0).snr_db(panned_center.channel(0)) < 85.0) {
+  audio.assert_close(st_loaded.channel(0).snr_db(panned_center.channel(0)), 85.0, 0.0);
+}
+
+# Gain, dB, normalization, slice, pad, concat, reverse, resample
+let half = orig.gain_db(-6.020599913);
+audio.assert_close(half.peak(), orig.peak() * 0.5, 0.0002);
+
+let norm_pk = orig.normalize(0.5);
+audio.assert_close(norm_pk.peak(), 0.5, 0.0002);
+
+let norm_r = orig.normalize_rms(0.2);
+audio.assert_close(norm_r.rms(), 0.2, 0.0002);
+
+let cat = orig.concat(orig.reverse());
+audio.assert_close(cat.duration(), orig.duration() * 2.0, 0.0002);
+audio.assert_close(cat.get(0), cat.get(cat.frames() - 1), 0.0001);
+
+# Windowed-sinc resampling preserves pitch and RMS
+let s_44k = audio.sine(500.0, 0.5, 0.8, 44100);
+let s_22k = s_44k.resample(22050);
+audio.assert_close(float(s_22k.sr()), 22050.0, 0.1);
+audio.assert_close(s_22k.pitch(), 500.0, 0.5);
+audio.assert_close(s_22k.slice(0.05, 0.45).rms(), s_44k.rms(), 0.005);
+end _dsl_
+savedsl(p, out);

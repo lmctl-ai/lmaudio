@@ -1,0 +1,68 @@
+# RBJ Audio-EQ-Cookbook Biquad Filter Bank: analytical |H(e^{jw})| magnitude & phase Bode plots
+# for Lowpass, Highpass, Bandpass, Notch, Peaking EQ, and Lowshelf filters, plus filtered chord audio.
+mkdir("build");
+mkdir("audio");
+mkdir("images");
+
+a = _dsl_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+let sr = 44100;
+
+let bq_lp = audio.biquad_design("lowpass", 800.0, 0.70710678, sr);
+let bq_hp = audio.biquad_design("highpass", 2500.0, 0.70710678, sr);
+let bq_bp = audio.biquad_design("bandpass", 1200.0, 2.2, sr);
+let bq_notch = audio.biquad_design("notch", 1000.0, 4.0, sr);
+let bq_peak = audio.biquad_design("peak", 3000.0, 2.0, 9.0, sr);
+let bq_shelf = audio.biquad_design("lowshelf", 250.0, 0.70710678, 6.0, sr);
+
+# Verify exact analytical transfer function points
+audio.assert_close(bq_lp.db_at(800.0), -3.0103, 0.01);
+audio.assert_close(bq_hp.db_at(2500.0), -3.0103, 0.01);
+audio.assert_close(bq_peak.db_at(3000.0), 9.0, 0.01);
+audio.assert_close(bq_notch.gain_at(1000.0), 0.0, 0.0001);
+
+bq_lp.save_response_csv("build/bq_lp.csv", 400, 20.0, 20000.0);
+bq_hp.save_response_csv("build/bq_hp.csv", 400, 20.0, 20000.0);
+bq_bp.save_response_csv("build/bq_bp.csv", 400, 20.0, 20000.0);
+bq_notch.save_response_csv("build/bq_notch.csv", 400, 20.0, 20000.0);
+bq_peak.save_response_csv("build/bq_peak.csv", 400, 20.0, 20000.0);
+bq_shelf.save_response_csv("build/bq_shelf.csv", 400, 20.0, 20000.0);
+
+# Synthesize a rich sawtooth triad at 22050 Hz and pass it sequentially through LPF -> BPF -> Peaking EQ
+let sr_aud = 22050;
+let chord = audio.saw(220.0, 0.7, 0.35, sr_aud)
+  .mix(audio.saw(277.18, 0.7, 0.30, sr_aud))
+  .mix(audio.saw(329.63, 0.7, 0.30, sr_aud))
+  .adsr(0.02, 0.1, 0.8, 0.08);
+let s1 = chord.biquad("lowpass", 650.0, 1.4);
+let s2 = chord.biquad("bandpass", 1200.0, 2.5);
+let s3 = chord.biquad("notch", 900.0, 3.0);
+let s4 = chord.biquad("peak", 2400.0, 2.0, 9.0);
+let out_wav = s1.concat(s2).concat(s3).concat(s4).normalize(0.92);
+out_wav.save_wav("audio/biquad_filter_bank.wav", 16);
+end _dsl_
+savedsl(a, "build/biquad_filter_bank.dslb");
+r1 = system ${dsl_cli(a)} --dsl build/biquad_filter_bank.dslb;
+assert(r1.code == 0);
+
+draw = _dsl_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+plot.png("images/biquad_filter_bank.png", 980, 660);
+plot.cmd("set datafile separator ','");
+plot.cmd("set multiplot layout 2,1 title 'RBJ Audio-EQ-Cookbook Biquad Filter Bank: Exact Analytical Bode Response (20 Hz - 20 kHz)' font ',13'");
+plot.cmd("set border 3; set tics nomirror; set grid xtics ytics mxtics lc rgb '#e0e0e0'");
+plot.cmd("set logscale x; set xrange [20:20000]");
+
+plot.cmd("set title 'Magnitude Response |H(e^{jw})| in dB'; set xlabel 'Frequency (Hz)'; set ylabel 'Gain (dB)'");
+plot.cmd("set yrange [-36:12]; set key bottom left maxrows 2 font ',9' box opaque");
+plot.cmd("plot 'build/bq_lp.csv' u 1:3 w l lw 2.2 lc rgb '#1f77b4' title 'LPF 800 Hz', 'build/bq_hp.csv' u 1:3 w l lw 2.2 lc rgb '#d62728' title 'HPF 2.5 kHz', 'build/bq_bp.csv' u 1:3 w l lw 2.0 lc rgb '#2ca02c' title 'BPF 1.2 kHz', 'build/bq_notch.csv' u 1:3 w l lw 2.0 lc rgb '#9467bd' title 'Notch 1 kHz', 'build/bq_peak.csv' u 1:3 w l lw 2.2 lc rgb '#ff7f0e' title 'Peak +9 dB', 'build/bq_shelf.csv' u 1:3 w l lw 2.0 lc rgb '#8c564b' title 'Shelf +6 dB'");
+
+plot.cmd("set title 'Phase Response arg H(e^{jw}) in Degrees'; set xlabel 'Frequency (Hz)'; set ylabel 'Phase (deg)'");
+plot.cmd("set yrange [-185:185]; set ytics -180, 90, 180; set key top right maxrows 2 font ',9' box opaque");
+plot.cmd("plot 'build/bq_lp.csv' u 1:4 w l lw 2.0 lc rgb '#1f77b4' title 'LPF 800 Hz', 'build/bq_hp.csv' u 1:4 w l lw 2.0 lc rgb '#d62728' title 'HPF 2.5 kHz', 'build/bq_bp.csv' u 1:4 w l lw 1.8 lc rgb '#2ca02c' title 'BPF 1.2 kHz', 'build/bq_peak.csv' u 1:4 w l lw 2.0 lc rgb '#ff7f0e' title 'Peak +9 dB', 'build/bq_shelf.csv' u 1:4 w l lw 1.8 lc rgb '#8c564b' title 'Shelf +6 dB'");
+
+plot.cmd("unset multiplot");
+plot.close();
+end _dsl_
+savedsl(draw, "build/biquad_filter_bank-draw.dslb");
+r2 = system ${dsl_cli(draw)} --dsl build/biquad_filter_bank-draw.dslb;
+assert(r2.code == 0);
+print("wrote images/biquad_filter_bank.png and audio/biquad_filter_bank.wav");

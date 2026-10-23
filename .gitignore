@@ -1,0 +1,10 @@
+build*/
+third_party/
+*.dslb
+.DS_Store
+lmaudio.lmctl
+p1.txt
+info.txt
+/images/
+/audio/
+/data/

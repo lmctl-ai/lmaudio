@@ -1,0 +1,66 @@
+# Physical modeling (Karplus-Strong, modal, bar), FM2, drums, reverbs, effects, and sequence rendering.
+out = ARGV.len() > 0 ? ARGV[0] : "build/physical_effects_and_seq.dslb";
+p = _dsl_ cli="lmaudio";
+# Karplus-Strong plucked string pitch accuracy and determinism
+let pl1 = audio.pluck(440.0, 1.0, 0.8, 0.7, 0.85, 44100);
+let pl2 = audio.pluck(440.0, 1.0, 0.8, 0.7, 0.85, 44100);
+audio.assert_close(pl1.snr_db(pl2), 240.0, 0.1);
+audio.assert_close(pl1.pitch(), 440.0, 3.0);
+audio.assert_close(pl1.peak(), 0.8, 0.001);
+
+# Modal resonator and Soundpipe struck bar
+let md = audio.modal(523.25, 0.8, 0.8, 0.5, 0.6, 0.7, 44100);
+audio.assert_close(md.peak(), 0.8, 0.001);
+let bar = audio.bar(1, 1, 55.0, 2.0, 0.6, 0.75, 44100);
+audio.assert_close(bar.peak(), 0.75, 0.001);
+
+# 2-operator FM synthesis: carrier 500 Hz, ratio 2.0 (modulator 1000 Hz) -> sidebands at 500, 1500, 2500 Hz
+let fm = audio.fm(500.0, 2.0, 1.2, 1.0, 0.8, 44100);
+let fm_sp = fm.spectrum("hann");
+if (fm_sp.mag_at_freq(500.0) <= 0.1) { audio.assert_close(fm_sp.mag_at_freq(500.0), 0.1, 0.0); }
+if (fm_sp.mag_at_freq(1500.0) <= 0.1) { audio.assert_close(fm_sp.mag_at_freq(1500.0), 0.1, 0.0); }
+if (fm_sp.mag_at_freq(2500.0) <= 0.05) { audio.assert_close(fm_sp.mag_at_freq(2500.0), 0.05, 0.0); }
+
+# Analog & synthetic drum voices
+let kick = audio.drum("kick", 55.0, 0.4, 0.6, 0.5, 0.85, 44100);
+let snare = audio.drum("snare", 180.0, 0.4, 0.5, 0.6, 0.85, 44100);
+let hat = audio.drum("hihat", 3000.0, 0.25, 0.3, 0.7, 0.8, 44100);
+# Spectral centroid ordering: hihat > snare > kick
+if (hat.centroid() <= snare.centroid()) { audio.assert_close(hat.centroid(), snare.centroid(), 0.0); }
+if (snare.centroid() <= kick.centroid()) { audio.assert_close(snare.centroid(), kick.centroid(), 0.0); }
+
+# Nonlinear distortion (wavefolder and overdrive) introduces odd harmonics (increases THD)
+let clean_sine = audio.sine(440.0, 0.5, 0.8, 44100);
+let folded = clean_sine.wavefold(2.8, 0.0);
+let overdriven = clean_sine.overdrive(0.65, 1.0);
+if (folded.thd(440.0, 7) <= 0.15) { audio.assert_close(folded.thd(440.0, 7), 0.15, 0.0); }
+if (overdriven.thd(440.0, 7) <= 0.05) { audio.assert_close(overdriven.thd(440.0, 7), 0.05, 0.0); }
+
+# Delay and FDN Reverb (revsc & zitarev) create reverberant tail energy after an impulse
+let imp = audio.impulse(1.0, 0.01, 1.0, 22050);
+let dly = imp.delay(0.2, 0.5, 0.5);
+if (dly.slice(0.18, 0.25).energy() <= 0.1) { audio.assert_close(0.0, 1.0, 0.0); }
+let rev = imp.reverb(0.85, 6000.0, 0.5);
+if (rev.slice(0.1, 0.8).rms() <= 0.0005) { audio.assert_close(0.0, 1.0, 0.0); }
+let zrev = imp.zitarev(2.0, 1.5, 5000.0, 0.5);
+if (zrev.slice(0.1, 0.8).rms() <= 0.0005) { audio.assert_close(0.0, 1.0, 0.0); }
+
+# Modulation, bitcrush, compressor, paulstretch
+let mod_ch = clean_sine.chorus(1.2, 0.5, 0.2, 0.4).flanger(0.4, 0.6, 0.3, 0.4).phaser(0.5, 0.7, 0.4, 4, 0.4);
+if (mod_ch.rms() <= 0.1) { audio.assert_close(0.0, 1.0, 0.0); }
+let crushed = clean_sine.bitcrush(4, 4000.0);
+if (crushed.thd(440.0, 7) <= clean_sine.thd(440.0, 7)) { audio.assert_close(0.0, 1.0, 0.0); }
+let comp = clean_sine.compress(4.0, -18.0, 0.005, 0.05, 0.0);
+if (comp.rms() >= clean_sine.rms()) { audio.assert_close(0.0, 1.0, 0.0); }
+let stretched = audio.sine(440.0, 0.2, 0.8, 22050).paulstretch(2.0, 0.05);
+audio.assert_close(stretched.duration(), 0.4, 0.01);
+
+# Musical note/chord sequence renderer
+let seq = audio.sequence("C4:1 E4:1 G4:1 C5:1", 120.0, "sine", 44100);
+audio.assert_close(seq.duration(), 2.0, 0.001);
+audio.assert_close(seq.slice(0.05, 0.45).pitch(), audio.note_freq("C4"), 1.0);
+audio.assert_close(seq.slice(0.55, 0.95).pitch(), audio.note_freq("E4"), 1.0);
+audio.assert_close(seq.slice(1.05, 1.45).pitch(), audio.note_freq("G4"), 1.0);
+audio.assert_close(seq.slice(1.55, 1.95).pitch(), audio.note_freq("C5"), 1.0);
+end _dsl_
+savedsl(p, out);

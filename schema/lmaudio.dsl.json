@@ -1,0 +1,1256 @@
+{
+  "dsl.schema": 2,
+  "name": "lmaudio",
+  "types": {
+    "Audio": {
+      "methods": {
+        "silence": [
+          {
+            "params": [
+              "int",
+              "float"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "sine": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "int"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "cosine": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "int"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "saw": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "int"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "square": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "float",
+              "int"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "int"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "triangle": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "int"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "chirp": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "float",
+              "string",
+              "int"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "float",
+              "string"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "impulse": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "int"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "noise": [
+          {
+            "params": [
+              "string",
+              "float",
+              "float",
+              "int",
+              "int"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "string",
+              "float",
+              "float",
+              "int"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "expr": [
+          {
+            "params": [
+              "string",
+              "float",
+              "int"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "string",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "fm": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "float",
+              "float",
+              "int"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "pluck": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "float",
+              "float",
+              "int"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "modal": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "float",
+              "float",
+              "float",
+              "int"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "bar": [
+          {
+            "params": [
+              "int",
+              "int",
+              "float",
+              "float",
+              "float",
+              "float",
+              "int"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "drum": [
+          {
+            "params": [
+              "string",
+              "float",
+              "float",
+              "float",
+              "float",
+              "float",
+              "int"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "string",
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "sequence": [
+          {
+            "params": [
+              "string",
+              "float",
+              "string",
+              "int"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "string",
+              "float",
+              "string"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "note_freq": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "float"
+          }
+        ],
+        "midi_freq": [
+          {
+            "params": [
+              "float"
+            ],
+            "returns": "float"
+          }
+        ],
+        "load_wav": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "stereo": [
+          {
+            "params": [
+              "Buffer",
+              "Buffer"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "biquad_design": [
+          {
+            "params": [
+              "string",
+              "float",
+              "float",
+              "float",
+              "int"
+            ],
+            "returns": "Biquad"
+          },
+          {
+            "params": [
+              "string",
+              "float",
+              "float",
+              "int"
+            ],
+            "returns": "Biquad"
+          }
+        ],
+        "assert_close": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "void"
+          }
+        ]
+      }
+    },
+    "Buffer": {
+      "methods": {
+        "sr": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "channels": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "frames": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "duration": [
+          {
+            "params": [],
+            "returns": "float"
+          }
+        ],
+        "get": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "float"
+          },
+          {
+            "params": [
+              "int",
+              "int"
+            ],
+            "returns": "float"
+          }
+        ],
+        "channel": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "to_mono": [
+          {
+            "params": [],
+            "returns": "Buffer"
+          }
+        ],
+        "gain": [
+          {
+            "params": [
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "gain_db": [
+          {
+            "params": [
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "normalize": [
+          {
+            "params": [
+              "float"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [],
+            "returns": "Buffer"
+          }
+        ],
+        "normalize_rms": [
+          {
+            "params": [
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "fade": [
+          {
+            "params": [
+              "float",
+              "float",
+              "string"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "adsr": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "pan": [
+          {
+            "params": [
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "slice": [
+          {
+            "params": [
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "pad": [
+          {
+            "params": [
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "concat": [
+          {
+            "params": [
+              "Buffer"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "mix": [
+          {
+            "params": [
+              "Buffer",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "Buffer",
+              "float"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "Buffer"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "reverse": [
+          {
+            "params": [],
+            "returns": "Buffer"
+          }
+        ],
+        "resample": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "biquad": [
+          {
+            "params": [
+              "string",
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "string",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "svf": [
+          {
+            "params": [
+              "string",
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "string",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "ladder": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "string"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "lpf_sweep": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "delay": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "reverb": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "zitarev": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "chorus": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "flanger": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "phaser": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "int",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "overdrive": [
+          {
+            "params": [
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "wavefold": [
+          {
+            "params": [
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "bitcrush": [
+          {
+            "params": [
+              "int",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "compress": [
+          {
+            "params": [
+              "float",
+              "float",
+              "float",
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "paulstretch": [
+          {
+            "params": [
+              "float",
+              "float"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "rms": [
+          {
+            "params": [],
+            "returns": "float"
+          },
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "float"
+          }
+        ],
+        "peak": [
+          {
+            "params": [],
+            "returns": "float"
+          },
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "float"
+          }
+        ],
+        "dc_offset": [
+          {
+            "params": [],
+            "returns": "float"
+          },
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "float"
+          }
+        ],
+        "energy": [
+          {
+            "params": [],
+            "returns": "float"
+          },
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "float"
+          }
+        ],
+        "zcr": [
+          {
+            "params": [],
+            "returns": "float"
+          },
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "float"
+          }
+        ],
+        "pitch": [
+          {
+            "params": [],
+            "returns": "float"
+          },
+          {
+            "params": [
+              "float",
+              "float"
+            ],
+            "returns": "float"
+          }
+        ],
+        "peak_freq": [
+          {
+            "params": [],
+            "returns": "float"
+          },
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "float"
+          }
+        ],
+        "centroid": [
+          {
+            "params": [],
+            "returns": "float"
+          },
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "float"
+          }
+        ],
+        "thd": [
+          {
+            "params": [],
+            "returns": "float"
+          },
+          {
+            "params": [
+              "float",
+              "int"
+            ],
+            "returns": "float"
+          }
+        ],
+        "snr_db": [
+          {
+            "params": [
+              "Buffer"
+            ],
+            "returns": "float"
+          }
+        ],
+        "spectrum": [
+          {
+            "params": [],
+            "returns": "Spectrum"
+          },
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "Spectrum"
+          },
+          {
+            "params": [
+              "string",
+              "int"
+            ],
+            "returns": "Spectrum"
+          }
+        ],
+        "spectrogram": [
+          {
+            "params": [
+              "int",
+              "int",
+              "string",
+              "float"
+            ],
+            "returns": "Spectrogram"
+          },
+          {
+            "params": [
+              "int",
+              "int"
+            ],
+            "returns": "Spectrogram"
+          }
+        ],
+        "save_wav": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "string",
+              "int"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "save_csv": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "string",
+              "int"
+            ],
+            "returns": "Buffer"
+          },
+          {
+            "params": [
+              "string",
+              "int",
+              "int"
+            ],
+            "returns": "Buffer"
+          }
+        ]
+      }
+    },
+    "Spectrum": {
+      "methods": {
+        "bins": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "nfft": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "sr": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "freq_at": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "float"
+          }
+        ],
+        "mag_at": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "float"
+          }
+        ],
+        "db_at": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "float"
+          }
+        ],
+        "phase_at": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "float"
+          }
+        ],
+        "mag_at_freq": [
+          {
+            "params": [
+              "float"
+            ],
+            "returns": "float"
+          }
+        ],
+        "peak_bin": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "peak_freq": [
+          {
+            "params": [],
+            "returns": "float"
+          }
+        ],
+        "peak_mag": [
+          {
+            "params": [],
+            "returns": "float"
+          }
+        ],
+        "centroid": [
+          {
+            "params": [],
+            "returns": "float"
+          }
+        ],
+        "parseval_energy": [
+          {
+            "params": [],
+            "returns": "float"
+          }
+        ],
+        "ifft": [
+          {
+            "params": [],
+            "returns": "Buffer"
+          }
+        ],
+        "save_csv": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "Spectrum"
+          },
+          {
+            "params": [
+              "string",
+              "float"
+            ],
+            "returns": "Spectrum"
+          }
+        ]
+      }
+    },
+    "Spectrogram": {
+      "methods": {
+        "frames": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "bins": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "sr": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "time_at": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "float"
+          }
+        ],
+        "freq_at": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "float"
+          }
+        ],
+        "mag_at": [
+          {
+            "params": [
+              "int",
+              "int"
+            ],
+            "returns": "float"
+          }
+        ],
+        "db_at": [
+          {
+            "params": [
+              "int",
+              "int"
+            ],
+            "returns": "float"
+          }
+        ],
+        "ridge_freq": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "float"
+          }
+        ],
+        "save_csv": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "Spectrogram"
+          },
+          {
+            "params": [
+              "string",
+              "float"
+            ],
+            "returns": "Spectrogram"
+          }
+        ]
+      }
+    },
+    "Biquad": {
+      "methods": {
+        "b0": [
+          {
+            "params": [],
+            "returns": "float"
+          }
+        ],
+        "b1": [
+          {
+            "params": [],
+            "returns": "float"
+          }
+        ],
+        "b2": [
+          {
+            "params": [],
+            "returns": "float"
+          }
+        ],
+        "a1": [
+          {
+            "params": [],
+            "returns": "float"
+          }
+        ],
+        "a2": [
+          {
+            "params": [],
+            "returns": "float"
+          }
+        ],
+        "gain_at": [
+          {
+            "params": [
+              "float"
+            ],
+            "returns": "float"
+          }
+        ],
+        "db_at": [
+          {
+            "params": [
+              "float"
+            ],
+            "returns": "float"
+          }
+        ],
+        "phase_deg_at": [
+          {
+            "params": [
+              "float"
+            ],
+            "returns": "float"
+          }
+        ],
+        "apply": [
+          {
+            "params": [
+              "Buffer"
+            ],
+            "returns": "Buffer"
+          }
+        ],
+        "save_response_csv": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "Biquad"
+          },
+          {
+            "params": [
+              "string",
+              "int",
+              "float",
+              "float"
+            ],
+            "returns": "Biquad"
+          }
+        ]
+      }
+    }
+  },
+  "functions": {},
+  "context": {
+    "audio": "Audio"
+  }
+}

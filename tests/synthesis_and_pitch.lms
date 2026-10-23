@@ -1,0 +1,50 @@
+# Synthesis, PolyBLEP oscillators, YIN pitch detection, and expression waveforms.
+out = ARGV.len() > 0 ? ARGV[0] : "build/synthesis_and_pitch.dslb";
+p = _dsl_ cli="lmaudio";
+let s440 = audio.sine(440.0, 1.0, 0.8, 44100);
+audio.assert_close(s440.duration(), 1.0, 0.0001);
+audio.assert_close(s440.peak(), 0.8, 0.0002);
+audio.assert_close(s440.rms(), 0.5656854249, 0.0002);
+audio.assert_close(s440.dc_offset(), 0.0, 0.0002);
+audio.assert_close(s440.zcr(), 880.0, 2.0);
+audio.assert_close(s440.pitch(), 440.0, 0.1);
+audio.assert_close(s440.peak_freq(), 440.0, 0.1);
+audio.assert_close(s440.thd(), 0.0, 0.001);
+
+let c1000 = audio.cosine(1000.0, 0.5, 0.6, 44100);
+audio.assert_close(c1000.get(0), 0.6, 0.0001);
+audio.assert_close(c1000.pitch(), 1000.0, 0.2);
+
+let saw = audio.saw(220.0, 1.0, 0.8, 44100);
+audio.assert_close(saw.pitch(), 220.0, 0.5);
+let sq = audio.square(330.0, 1.0, 0.8, 44100);
+audio.assert_close(sq.pitch(), 330.0, 0.5);
+let sq_spec = sq.spectrum("hann");
+# Square wave has strong 3rd harmonic (990 Hz) and near-zero 2nd harmonic (660 Hz).
+audio.assert_close(sq_spec.mag_at_freq(660.0), 0.0, 0.01);
+let tri = audio.triangle(440.0, 1.0, 0.8, 44100);
+audio.assert_close(tri.pitch(), 440.0, 0.5);
+
+# Expression synthesis: 0.5*sin(2*pi*500*t) + 0.25*cos(2*pi*1500*t) -> RMS = sqrt(0.5^2/2 + 0.25^2/2) = 0.3952847075
+let ex = audio.expr("0.5 * sin(2 * pi * 500 * t) + 0.25 * cos(2 * pi * 1500 * t)", 1.0, 44100);
+audio.assert_close(ex.rms(), 0.3952847075, 0.0002);
+
+# Note and MIDI frequency conversion
+audio.assert_close(audio.note_freq("A4"), 440.0, 0.0001);
+audio.assert_close(audio.note_freq("C4"), 261.6255653, 0.001);
+audio.assert_close(audio.note_freq("F#5"), 739.9888454, 0.001);
+audio.assert_close(audio.note_freq("Bb3"), 233.0818808, 0.001);
+audio.assert_close(audio.midi_freq(69.0), 440.0, 0.0001);
+audio.assert_close(audio.midi_freq(60.0), 261.6255653, 0.001);
+
+# Deterministic noise: identical seeds yield identical signals (SNR = 240 dB)
+let nw1 = audio.noise("white", 0.5, 0.5, 101, 44100);
+let nw2 = audio.noise("white", 0.5, 0.5, 101, 44100);
+audio.assert_close(nw1.snr_db(nw2), 240.0, 0.1);
+let np = audio.noise("pink", 1.0, 0.5, 42, 44100);
+let nb = audio.noise("brown", 1.0, 0.5, 42, 44100);
+# Spectral centroid of white > pink > brown noise
+if (nw1.centroid() <= np.centroid()) { audio.assert_close(nw1.centroid(), np.centroid(), 0.0); }
+if (np.centroid() <= nb.centroid()) { audio.assert_close(np.centroid(), nb.centroid(), 0.0); }
+end _dsl_
+savedsl(p, out);
