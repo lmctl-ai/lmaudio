@@ -239,8 +239,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-7. cpp-dsl-sdk and shared MIT code
-   https://github.com/lmctl-ai/cpp-dsl-sdk
+7. lmcode-cpp and shared MIT code
+   https://github.com/lmctl-ai/lmcode-cpp
    Commit: ef8618443c1acefeea1dcef208005ee402ff8a97
    Source: LICENSE
 ================================================================================

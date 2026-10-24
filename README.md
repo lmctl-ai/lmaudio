@@ -398,7 +398,7 @@ usage: lmaudio --version | --notices | --dsl-schema [--json] | --dsl-signatures 
 
 ```sh
 scripts/sync-deps.sh          # fetch DaisySP and Soundpipe at the commits pinned in deps.lock
-scripts/sync-sdk.sh --verify  # the cpp-dsl-sdk header pinned in sdk.lock
+scripts/sync-sdk.sh --verify  # the lmcode-cpp header pinned in sdk.lock
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
 ./test.sh                     # tests, error cases, memory budget, every example
 examples/render-all.sh        # regenerate docs/images and docs/audio
