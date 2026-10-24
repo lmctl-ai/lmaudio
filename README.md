@@ -275,7 +275,7 @@ lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/c
 ## Use it
 
 Download the binary for your platform from the [releases](https://github.com/lmctl-ai/lmaudio/releases)
-(`lmaudio-linux-x64`, `lmaudio-linux-arm64`, `lmaudio-macos-arm64`, `lmaudio-macos-x64`,
+(`lmaudio-linux-x64` and `lmaudio-linux-arm64` built against dynamic glibc >= 2.35 with all third-party libraries and C++ runtimes linked statically, `lmaudio-macos-arm64`, `lmaudio-macos-x64`,
 `lmaudio-windows-x64.exe`), or let `lmscript` fetch it: a program is a `_dsl_` block compiled by
 `lmscript` (`npm i -g @lmctl-ai/lmctl`), which finds `lmaudio` on `PATH` or downloads the release
 on first use (`install=`).
@@ -404,7 +404,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
 examples/render-all.sh        # regenerate docs/images and docs/audio
 ```
 
-CI builds static binaries for Linux x64/arm64, macOS arm64/x64 and Windows x64 on every push.
+CI builds self-contained binaries for Linux x64/arm64 (dynamic glibc >= 2.35, `-static-libstdc++ -static-libgcc`), macOS arm64/x64 and Windows x64 on every push.
 
 ## License
 
@@ -417,5 +417,5 @@ lmaudio's own code is [MIT](LICENSE). It statically links:
 | original code in `cpp/` | MIT | FFT/STFT, biquads, FDN reverbs, convolution, resampler, YIN, LUFS, RT60, Karplus-Strong, bar, additive, granular, pattern, sequencer, WAV I/O |
 
 Soundpipe's Csound-derived opcodes and `zitarev.c` (zita-rev1, GPL) are **not** compiled; nor are
-KFR, FFTW or libsndfile. The full license texts, including the platform runtime libraries of the
-static build, are in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) and in the binary (`lmaudio --notices`).
+KFR, FFTW or libsndfile. The full license texts, including the platform runtime libraries (dynamic
+glibc >= 2.35 on Linux, static C++ and MinGW runtimes), are in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) and in the binary (`lmaudio --notices`).

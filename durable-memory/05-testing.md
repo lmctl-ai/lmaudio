@@ -3,7 +3,7 @@
 `./test.sh` enforces:
 
 1. **Pin & Schema Verification**: `scripts/sync-sdk.sh --verify`, `scripts/sync-deps.sh --verify`, `scripts/gen-schema.py` diff check, byte-exact `--dsl-schema --json` vs `schema/lmaudio.dsl.json`, host vs compiler `--dsl-signatures`, and byte-exact `--notices` vs `THIRD_PARTY_NOTICES`.
-2. **Static Link Verification**: `ldd` check on Linux (fully static), `otool -L` on macOS, `objdump -p` on Windows.
+2. **Linkage Verification**: `readelf -d` (fallback `ldd`) check on Linux verifying the glibc NEEDED allowlist (`libc.so.6`, `libm.so.6`, `libpthread.so.0`, `libdl.so.2`, `librt.so.1`, `ld-linux*`, and nothing else), `otool -L` on macOS, `objdump -p` on Windows.
 3. **Mathematical & Analytical DSP Suites (`tests/*.lms`)**:
    - `synthesis_and_pitch.lms`: Oscillator peak/RMS/DC/ZCR, YIN pitch accuracy on sine/cosine/saw/square/triangle, silence pitch returning `0.0 Hz`, expression waveform RMS, note/MIDI frequencies, and seeded noise determinism + spectral centroid ordering.
    - `filters_and_biquad.lms`: RBJ Butterworth lowpass, notch, and peaking EQ analytical `gain_at`/`db_at`/`phase_deg_at` matched against steady-state time-domain filtered sine RMS; DaisySP SVF and Moog ladder filtering.

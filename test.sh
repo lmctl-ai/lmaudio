@@ -34,6 +34,7 @@ cmake --build "$BUILD_DIR" >"$WORK/build.log" 2>&1 || { tail -40 "$WORK/build.lo
 ok "build"
 
 want_version="lmaudio $(sed -n 's/^project(lmaudio VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)"
+[ "$want_version" = "lmaudio 0.2.1" ] || fail "CMakeLists.txt version is not 0.2.1 ($want_version)"
 [ "$("$HOST" --version)" = "$want_version" ] || fail "--version is not exactly '$want_version'"
 ok "--version prints exactly '$want_version'"
 cp schema/lmaudio.dsl.json "$WORK/schema.before"
@@ -46,7 +47,7 @@ diff -u <("$LMSCRIPT" --dsl-signatures schema/lmaudio.dsl.json) <("$HOST" --dsl-
 ok "host registry matches compiler signatures"
 "$HOST" --notices >"$WORK/notices.txt" || fail "embedded notices print"
 cmp -s "$WORK/notices.txt" THIRD_PARTY_NOTICES || fail "--notices differs from THIRD_PARTY_NOTICES"
-grep -q "DaisySP" THIRD_PARTY_NOTICES && grep -q "Soundpipe" THIRD_PARTY_NOTICES && grep -q "Matsumoto" THIRD_PARTY_NOTICES && grep -q "GNU LESSER GENERAL PUBLIC LICENSE" THIRD_PARTY_NOTICES && grep -q "GCC RUNTIME LIBRARY EXCEPTION" THIRD_PARTY_NOTICES || fail "THIRD_PARTY_NOTICES missing required attributions"
+grep -q "DaisySP" THIRD_PARTY_NOTICES && grep -q "Soundpipe" THIRD_PARTY_NOTICES && grep -q "Matsumoto" THIRD_PARTY_NOTICES && grep -q "dynamically linked to the system glibc (LGPL-2.1" THIRD_PARTY_NOTICES && grep -q "glibc >= 2.35" THIRD_PARTY_NOTICES && grep -q "GNU LESSER GENERAL PUBLIC LICENSE" THIRD_PARTY_NOTICES && grep -q "GCC RUNTIME LIBRARY EXCEPTION" THIRD_PARTY_NOTICES || fail "THIRD_PARTY_NOTICES missing required attributions"
 ok "--notices prints byte-identical THIRD_PARTY_NOTICES with full attribution and runtime licenses"
 
 for f in index.md 01-purpose.md 02-architecture.md 03-api.md 04-Visuals.md 05-testing.md 06-build-and-ci.md 07-decisions.md 08-limitations.md; do
@@ -55,7 +56,16 @@ done
 ok "durable-memory/ contains all 9 architecture files"
 
 case "$UNAME_S" in
-  Linux) if ldd "$HOST" >/dev/null 2>&1; then fail "executable is dynamically linked"; fi; ok "executable is fully static (no dynamic loader)";;
+  Linux)
+    if command -v readelf >/dev/null 2>&1; then
+      needed="$(readelf -d "$HOST" | awk '/\(NEEDED\)/ { gsub(/\[|\]/, "", $5); print $5 }')"
+    else
+      needed="$(ldd "$HOST" | awk '/=>/ { print $1 } /^\// { sub(/.*\//, "", $1); print $1 }')"
+    fi
+    [ -n "$needed" ] || fail "expected dynamic glibc linkage on Linux"
+    bad="$(printf '%s\n' "$needed" | grep -v -E '^(libc\.so\.6|libm\.so\.6|libpthread\.so\.0|libdl\.so\.2|librt\.so\.1|ld-linux.*\.so\.[0-9]+)$' || true)"
+    [ -z "$bad" ] || fail "unexpected Linux NEEDED libraries: $bad"
+    ok "Linux dynamic glibc allowlist only";;
   Darwin) bad="$(otool -L "$HOST" | tail -n +2 | grep -v -E '/usr/lib/(libSystem|libc\+\+|libresolv)' || true)"
           [ -z "$bad" ] || fail "non-system dylib dependencies: $bad"; ok "only system libraries linked";;
   MINGW*|MSYS*|CYGWIN*)

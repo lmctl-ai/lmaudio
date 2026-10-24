@@ -7,9 +7,9 @@
 
 ## 5-Platform CI & Release Matrix
 
-`.github/workflows/ci.yml` and `.github/workflows/release.yml` build, test, and package standalone archives across:
-- `linux-x86_64` (`-static`)
-- `linux-arm64` (`-static`)
+`.github/workflows/ci.yml` builds, tests, and packages standalone executables across:
+- `linux-x86_64` (`ubuntu-22.04`, dynamic glibc >= 2.35, `-static-libstdc++ -static-libgcc`, all third-party libraries static)
+- `linux-arm64` (`ubuntu-22.04-arm`, dynamic glibc >= 2.35, `-static-libstdc++ -static-libgcc`, all third-party libraries static)
 - `macos-x86_64`
 - `macos-arm64`
 - `windows-x86_64` (`-static -static-libgcc -static-libstdc++`)
