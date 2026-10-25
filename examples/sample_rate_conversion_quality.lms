@@ -1,0 +1,94 @@
+# Sample-rate conversion 44.1 kHz -> 16 kHz (e.g. preparing audio for a speech recognizer):
+# why you need an anti-aliasing filter.
+# A log sweep from 50 Hz to 20 kHz is converted two ways:
+# - naive: sample-and-hold at 16 kHz with no filter (what dropping samples does). Everything above
+#   the new Nyquist frequency (8 kHz) folds back: the sweep turns around and comes down again.
+# - Buffer.resample: Kaiser-windowed sinc (32 zero crossings, beta 9), cutoff 0.91 x Nyquist.
+# Measuring sine tones one at a time gives the two converters' "response": in the passband both
+# keep the tone, but above 8 kHz the naive one passes the folded alias at almost full level while
+# the sinc converter suppresses it by more than 90 dB (asserted at 11 kHz), and a 1 kHz tone
+# keeps its level to 0.01 dB.
+# Writes images/sample_rate_conversion_quality.png and audio/sample_rate_conversion_quality.wav.
+mkdir("build");
+mkdir("images");
+mkdir("audio");
+
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+let sr = 44100;
+let sweep = audio.chirp(50.0, 20000.0, 2.0, 0.5, "log", sr);
+let clean = sweep.resample(16000);
+let naive = sweep.bitcrush(16, 16000.0).resample(16000);
+clean.spectrogram(512, 128, "hann", 8000.0).save_csv("build/src_clean.csv", -100.0);
+naive.spectrogram(512, 128, "hann", 8000.0).save_csv("build/src_naive.csv", -100.0);
+
+# Tone-by-tone response: output RMS relative to the input RMS, whatever frequency it lands on.
+let rows = "# freq_hz,sinc_db,naive_db\n";
+for (i in range(0, 60)) {
+  let f = 100.0 * pow(10.0, float(i) * 0.0386);
+  if (f < 21500.0) {
+    let tone = audio.sine(f, 0.3, 0.5, sr);
+    let s_db = audio.db(tone.resample(16000).slice(0.05, 0.25).rms() / tone.rms());
+    let n_db = audio.db(tone.bitcrush(16, 16000.0).resample(16000).slice(0.05, 0.25).rms() / tone.rms());
+    rows = rows + str(f) + "," + str(max(s_db, -140.0)) + "," + str(max(n_db, -140.0)) + "\n";
+  }
+}
+audio.save_text("build/src_response.csv", rows);
+
+let t1k = audio.sine(1000.0, 0.5, 0.5, sr);
+let g1k = audio.db(t1k.resample(16000).slice(0.1, 0.4).rms() / t1k.rms());
+let t11k = audio.sine(11000.0, 0.5, 0.5, sr);
+let a11 = audio.db(t11k.resample(16000).slice(0.1, 0.4).rms() / t11k.rms());
+let a11n = audio.db(t11k.bitcrush(16, 16000.0).resample(16000).slice(0.1, 0.4).rms() / t11k.rms());
+audio.print("1 kHz passband gain " + str(g1k) + " dB; 11 kHz alias: sinc " + str(a11) + " dB, naive " + str(a11n) + " dB");
+audio.assert_close(g1k, 0.0, 0.01);
+audio.assert_close(max(a11, -90.0), -90.0, 0.0);
+audio.assert_close(max(a11n, -6.0), a11n, 0.0);
+
+# Listen: 2 s naive (falling alias after 1.6 s), 0.3 s pause, 2 s clean (sweep fades out at 7 kHz).
+naive.resample(22050).fade(0.01, 0.05).concat(audio.silence(0.3, 22050)).concat(clean.resample(22050).fade(0.01, 0.05)).normalize(0.7).save_wav("audio/sample_rate_conversion_quality.wav", 16);
+end _lmcode_
+savedsl(a, "build/sample_rate_conversion_quality.dslb");
+r1 = system ${dsl_cli(a)} --dsl build/sample_rate_conversion_quality.dslb;
+for (l in lines(r1.stdout)) { if (!starts_with(l, "{")) { println(l); } }
+if (r1.code != 0) { println(r1.stderr); }
+assert(r1.code == 0);
+
+p = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+plot.png("images/sample_rate_conversion_quality.png", 980, 700);
+plot.cmd("set encoding utf8");
+plot.cmd("set datafile separator ','");
+plot.cmd("set multiplot");
+plot.cmd("set label 99 'Converting 44.1 kHz to 16 kHz: a 50 Hz-20 kHz sweep with and without an anti-alias filter' at screen 0.5, 0.97 center font ',13.5'");
+plot.cmd("set palette defined (0 '#0b1026', 0.35 '#253494', 0.6 '#41b6c4', 0.85 '#fed976', 1 '#ffffcc')");
+
+plot.script("set lmargin at screen 0.095\nset rmargin at screen 0.44\nset tmargin at screen 0.88\nset bmargin at screen 0.585");
+plot.cmd("set title 'Naive: sample-and-hold, no filter' font ',11'");
+plot.cmd("set xlabel 'time (s)'; set ylabel 'frequency (Hz)'; set xrange [0:2]; set yrange [0:8000]; set cbrange [-100:-10]; unset colorbox");
+plot.cmd("set pm3d map");
+plot.cmd("set label 1 'aliases fold back' at 0.08, 6600 front tc rgb '#ffffff' font ',10'");
+plot.cmd("splot 'build/src_naive.csv' u 1:2:3 notitle");
+plot.cmd("unset label 1");
+
+plot.script("set lmargin at screen 0.53\nset rmargin at screen 0.89\nset tmargin at screen 0.88\nset bmargin at screen 0.585");
+plot.cmd("set title 'Kaiser-windowed sinc (Buffer.resample)' font ',11'");
+plot.cmd("set colorbox; set cblabel 'dB'; set ylabel ''");
+plot.cmd("set label 2 'sweep simply stops near 7.3 kHz' at 0.08, 6600 front tc rgb '#ffffff' font ',10'");
+plot.cmd("splot 'build/src_clean.csv' u 1:2:3 notitle");
+plot.cmd("unset label 2; unset pm3d; unset colorbox");
+
+plot.script("set lmargin at screen 0.09\nset rmargin at screen 0.97\nset tmargin at screen 0.42\nset bmargin at screen 0.09");
+plot.cmd("set title 'Tone-by-tone: output level after conversion (aliases included)' font ',11'");
+plot.cmd("set xlabel 'input frequency (Hz, log scale)'; set ylabel 'output / input (dB)'");
+plot.cmd("set logscale x; set xrange [100:21500]; set yrange [-130:10]; set ytics 20; set grid lc rgb '#e2e8f0'");
+plot.cmd("set object 1 rect from 8000, -130 to 21500, 10 fc rgb '#fee2e2' fs solid 0.5 noborder behind");
+plot.cmd("set label 3 'shaded: above the new Nyquist (8 kHz), should be silent' at 7600, -100 right font ',9.5' tc rgb '#b91c1c'");
+plot.cmd("set key bottom left font ',10' opaque box lc rgb '#cbd5e1'");
+plot.cmd("plot 'build/src_response.csv' u 1:3 w lp pt 7 ps 0.6 lw 2 lc rgb '#f59e0b' t 'naive sample-and-hold', 'build/src_response.csv' u 1:2 w lp pt 5 ps 0.6 lw 2 lc rgb '#2563eb' t 'Kaiser sinc resampler'");
+plot.cmd("unset multiplot");
+plot.close();
+end _lmcode_
+savedsl(p, "build/sample_rate_conversion_quality-plot.dslb");
+r2 = system ${dsl_cli(p)} --dsl build/sample_rate_conversion_quality-plot.dslb;
+if (r2.code != 0) { println(r2.stderr); }
+assert(r2.code == 0);
+println("wrote images/sample_rate_conversion_quality.png and audio/sample_rate_conversion_quality.wav");

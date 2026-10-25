@@ -1,0 +1,146 @@
+# Karplus-Strong plucked string: why the textbook loop plays out of tune, and how a one-pole
+# allpass fixes it.
+# A burst of noise circulates through a delay line and a two-point average. That loop delays by
+# N + 1/2 samples, so with an integer N only the pitches sr/(N + 1/2) exist: at 22.05 kHz the top
+# octave lands up to 50 cents off. audio.karplus adds a first-order allpass that supplies the
+# missing fraction of a sample (Jaffe & Smith 1983). The script measures every semitone from E3
+# to E6 (fundamental read from a zero-padded spectrum, like a strobe tuner), compares with the integer-delay prediction, shows the noise
+# burst settling into a periodic tone whose upper harmonics die first, and plays the opening of
+# Greensleeves on the tuned string.
+# Writes images/karplus_strong_tuning.png and audio/karplus_strong_tuning.wav.
+mkdir("build");
+mkdir("images");
+mkdir("audio");
+mkdir("build/rendered");
+
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+let sr = 22050;
+
+# 1. Tuning sweep, E3 (MIDI 52) to E6 (MIDI 88).
+let rows = "# midi,target_hz,measured_hz,cents_allpass,cents_integer\n";
+let worst = 0.0;
+let worst_int = 0.0;
+for (i in range(0, 37)) {
+  let midi = 52.0 + float(i);
+  let f = audio.midi_freq(midi);
+  let measured = audio.karplus(f, 0.6, 0.8, 1.2, 7, sr).spectrum("hann", 65536).peak_freq_in(f * 0.8, f * 1.2);
+  let c_ap = audio.cents(measured, f);
+  # Integer delay: N = round(sr/f - 1/2), loop = N + 1/2 samples.
+  let n_int = floor(float(sr) / f);
+  let c_int = audio.cents(float(sr) / (n_int + 0.5), f);
+  worst = max(worst, abs(c_ap));
+  worst_int = max(worst_int, abs(c_int));
+  rows = rows + str(midi) + "," + str(f) + "," + str(measured) + "," + str(c_ap) + "," + str(c_int) + "\n";
+}
+audio.save_text("build/ks_tuning.csv", rows);
+audio.print("tuning E3-E6: worst error " + str(worst) + " cents with the allpass, up to " + str(worst_int) + " cents with an integer delay");
+# Every note within 0.1 cent (people notice about 5 cents).
+audio.assert_close(worst, 0.0, 0.1);
+
+# 2. One A2 string (110 Hz, fundamental T60 = 2 s): two periods at the start and after 1 s, and its spectrogram.
+let a2 = audio.karplus(110.0, 2.5, 0.9, 2.0, 7, sr);
+audio.assert_close(a2.pitch(80.0, 200.0), 110.0, 0.2);
+a2.slice(0.0, 0.0182).normalize(1.0).save_csv("build/ks_early.csv");
+a2.slice(1.0, 1.0182).normalize(1.0).save_csv("build/ks_late.csv");
+a2.spectrogram(1024, 128, "hann", 2500.0).save_csv("build/ks_sgram.csv", -80.0);
+audio.print("A2 string: broadband RT60 " + str(a2.rt60()) + " s (fundamental set to 2.0 s; the averaging filter damps upper harmonics faster)");
+
+# 3. Greensleeves, opening phrase, on the tuned string.
+let tune = audio.sequence("A4:1 C5:2 D5:1 E5:1.5 F5:0.5 E5:1 D5:2 B4:1 G4:2", 180.0, "karplus", sr);
+tune.normalize(0.9).fade(0.0, 0.3).save_wav("audio/karplus_strong_tuning.wav", 16);
+end _lmcode_
+savedsl(a, "build/karplus_strong_tuning.dslb");
+r1 = system ${dsl_cli(a)} --dsl build/karplus_strong_tuning.dslb;
+for (l in lines(r1.stdout)) { if (!starts_with(l, "{")) { println(l); } }
+if (r1.code != 0) { println(r1.stderr); }
+assert(r1.code == 0);
+
+# Signal-flow diagram of the loop.
+d = _lmcode_ cli="lmdraw" install="github:lmctl-ai/lmdraw@latest";
+scene.canvas(470, 250, "#ffffff");
+scene.text(235.0, 24.0, 14.0, "Karplus-Strong loop: N + ½ + d samples = sr / f", "#0f172a").set_attr("text-anchor", "middle");
+# Noise burst source
+scene.rect(12.0, 92.0, 92.0, 46.0, "#fef3c7").set_attr("stroke", "#b45309");
+scene.text(58.0, 111.0, 11.0, "noise burst", "#78350f").set_attr("text-anchor", "middle");
+scene.text(58.0, 128.0, 11.0, "N samples, seed", "#78350f").set_attr("text-anchor", "middle");
+scene.arrow(104.0, 115.0, 136.0, 115.0, "#334155", 1.8);
+# Sum node
+scene.circle(150.0, 115.0, 14.0, "#ffffff").set_attr("stroke", "#334155");
+scene.text(150.0, 120.0, 16.0, "+", "#334155").set_attr("text-anchor", "middle");
+scene.arrow(164.0, 115.0, 190.0, 115.0, "#334155", 1.8);
+# Delay line
+scene.rect(190.0, 95.0, 78.0, 40.0, "#dbeafe").set_attr("stroke", "#1d4ed8");
+scene.text(229.0, 113.0, 13.0, "delay z⁻ᴺ", "#1e3a8a").set_attr("text-anchor", "middle");
+scene.text(229.0, 128.0, 10.5, "N samples", "#1e3a8a").set_attr("text-anchor", "middle");
+scene.arrow(268.0, 115.0, 300.0, 115.0, "#334155", 1.8);
+# Averager
+scene.rect(300.0, 95.0, 88.0, 40.0, "#dcfce7").set_attr("stroke", "#15803d");
+scene.text(344.0, 113.0, 13.0, "½ (1 + z⁻¹)", "#14532d").set_attr("text-anchor", "middle");
+scene.text(344.0, 128.0, 10.5, "+½ sample, lowpass", "#14532d").set_attr("text-anchor", "middle");
+# Output tap
+scene.line(284.0, 115.0, 284.0, 62.0, "#334155", 1.5);
+scene.arrow(284.0, 62.0, 440.0, 62.0, "#334155", 1.8);
+scene.text(446.0, 58.0, 12.5, "out", "#0f172a");
+# Feedback path
+scene.line(388.0, 115.0, 420.0, 115.0, "#334155", 1.8);
+scene.line(420.0, 115.0, 420.0, 190.0, "#334155", 1.8);
+scene.arrow(420.0, 190.0, 362.0, 190.0, "#334155", 1.8);
+scene.rect(262.0, 170.0, 100.0, 40.0, "#fce7f3").set_attr("stroke", "#be185d");
+scene.text(312.0, 188.0, 13.0, "allpass", "#831843").set_attr("text-anchor", "middle");
+scene.text(312.0, 203.0, 10.5, "+d, fractional", "#831843").set_attr("text-anchor", "middle");
+scene.arrow(262.0, 190.0, 222.0, 190.0, "#334155", 1.8);
+scene.rect(176.0, 172.0, 46.0, 36.0, "#f1f5f9").set_attr("stroke", "#475569");
+scene.text(199.0, 195.0, 13.0, "× g", "#0f172a").set_attr("text-anchor", "middle");
+scene.line(176.0, 190.0, 150.0, 190.0, "#334155", 1.8);
+scene.arrow(150.0, 190.0, 150.0, 130.0, "#334155", 1.8);
+scene.text(235.0, 236.0, 11.0, "g sets the 60 dB decay time of the fundamental", "#475569").set_attr("text-anchor", "middle");
+scene.render_png("build/rendered/ks_loop.png", 470, 250, 2);
+end _lmcode_
+savedsl(d, "build/karplus_strong_tuning-diagram.dslb");
+r2 = system ${dsl_cli(d)} --dsl build/karplus_strong_tuning-diagram.dslb;
+if (r2.code != 0) { println(r2.stderr); }
+assert(r2.code == 0);
+
+p = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+plot.png("images/karplus_strong_tuning.png", 980, 720);
+plot.cmd("set encoding utf8");
+plot.cmd("set datafile separator ','");
+plot.cmd("set multiplot");
+plot.cmd("set label 99 'Karplus-Strong string: an allpass makes every note in tune' at screen 0.5, 0.97 center font ',14'");
+plot.cmd("set pixmap 1 'build/rendered/ks_loop.png' at screen 0.02, 0.535 width screen 0.47");
+
+# Top right: noise burst becomes periodic
+plot.script("set lmargin at screen 0.57\nset rmargin at screen 0.97\nset tmargin at screen 0.89\nset bmargin at screen 0.60");
+plot.cmd("set title 'A2 string: two periods at the start and after 1 s' font ',11'");
+plot.cmd("set xlabel 'time within the window (ms)'; set ylabel 'amplitude'");
+plot.cmd("set xrange [0:18.2]; set yrange [-1.1:1.6]; set grid lc rgb '#e2e8f0'");
+plot.cmd("set key top right font ',9' opaque box lc rgb '#cbd5e1'");
+plot.cmd("plot 'build/ks_early.csv' u ($1*1000):2 w l lw 1.2 lc rgb '#f59e0b' t 'start (white noise)', 'build/ks_late.csv' u ($1*1000):2 w l lw 2.2 lc rgb '#2563eb' t 'after 1 s (smoothed, scaled)'");
+
+# Bottom left: tuning error
+plot.cmd("unset title; unset pixmap 1");
+plot.script("set lmargin at screen 0.08\nset rmargin at screen 0.47\nset tmargin at screen 0.45\nset bmargin at screen 0.10");
+plot.cmd("set title 'Pitch error per semitone, E3-E6 at 22.05 kHz' font ',11'");
+plot.cmd("set xlabel 'MIDI note (52 = E3, 88 = E6)'; set ylabel 'error (cents)'");
+plot.cmd("set xrange [51:89]; set yrange [-55:55]; set ytics 25");
+plot.cmd("set key bottom left font ',9' opaque box lc rgb '#cbd5e1'");
+plot.cmd("set object 1 rect from 51,-5 to 89,5 fc rgb '#dcfce7' fs solid 0.6 noborder behind");
+plot.cmd("set label 1 '±5 cents: audible threshold' at 52.5, 9 font ',9' tc rgb '#15803d'");
+plot.cmd("plot 'build/ks_tuning.csv' u 1:5 w lp pt 7 ps 0.6 lw 1.5 lc rgb '#dc2626' t 'integer delay N + ½ (theory)', 'build/ks_tuning.csv' u 1:4 w lp pt 5 ps 0.6 lw 2 lc rgb '#2563eb' t 'with allpass (measured)'");
+
+# Bottom right: spectrogram
+plot.cmd("unset object 1; unset label 1; unset key");
+plot.script("set lmargin at screen 0.58\nset rmargin at screen 0.88\nset tmargin at screen 0.45\nset bmargin at screen 0.10");
+plot.cmd("set title 'A2 spectrogram: high harmonics decay first' font ',11'");
+plot.cmd("set xlabel 'time (s)'; set ylabel 'frequency (Hz)'; set cblabel 'dB'");
+plot.cmd("set xrange [0:2.45]; set yrange [0:2500]; set ytics 500; set cbrange [-80:0]");
+plot.cmd("set pm3d map; set palette defined (0 '#0b1026', 0.3 '#3b0f70', 0.55 '#b5367a', 0.8 '#fb8861', 1 '#fcfdbf')");
+plot.cmd("splot 'build/ks_sgram.csv' u 1:2:3 notitle");
+plot.cmd("unset multiplot");
+plot.close();
+end _lmcode_
+savedsl(p, "build/karplus_strong_tuning-plot.dslb");
+r3 = system ${dsl_cli(p)} --dsl build/karplus_strong_tuning-plot.dslb;
+if (r3.code != 0) { println(r3.stderr); }
+assert(r3.code == 0);
+println("wrote images/karplus_strong_tuning.png and audio/karplus_strong_tuning.wav");

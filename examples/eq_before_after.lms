@@ -1,0 +1,83 @@
+# Parametric 4-Band Mastering EQ Before/After with STFT Spectrograms & FFT Spectrum Comparison:
+# High-pass at 75 Hz removes 45 Hz hum, cuts 220 Hz mud (-9 dB), notches harsh 2400 Hz ringing (-16 dB) and adds a
+# 5.2 kHz air shelf (+5.5 dB); asserts that the 2.4 kHz ring drops by more than 11 dB.
+mkdir("build");
+mkdir("audio");
+mkdir("images");
+
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+let sr = 22050;
+
+# Construct an unmastered groove + chord loop plagued by 55 Hz hum, 220 Hz mud, and harsh 2400 Hz metallic ringing
+let chords = audio.sequence("D3+F3+A3+C4:1.5 G3+B3+D4+F4:1.5 C3+E3+G3+B3:1.5", 135.0, "saw", sr);
+let mud_boom = audio.sine(220.0, chords.duration(), 0.38, sr);
+let harsh_ring = audio.sine(2400.0, chords.duration(), 0.28, sr).mix(audio.noise("pink", chords.duration(), 0.14, 77, sr));
+let sub_hum = audio.sine(45.0, chords.duration(), 0.25, sr);
+let raw_mix = chords.gain(0.45).mix(mud_boom).mix(harsh_ring).mix(sub_hum).normalize(0.88);
+
+# 4-band RBJ Audio-EQ-Cookbook parametric mastering chain
+let hp_sub = audio.biquad_design("highpass", 75.0, 0.7071, 0.0, sr);
+let dip_mud = audio.biquad_design("peak", 220.0, 2.2, -9.0, sr);
+let cut_harsh = audio.biquad_design("peak", 2400.0, 4.0, -16.0, sr);
+let air_shelf = audio.biquad_design("highshelf", 5200.0, 0.7071, 5.5, sr);
+
+let eq_mix = air_shelf.apply(cut_harsh.apply(dip_mud.apply(hp_sub.apply(raw_mix))));
+
+# Verify the 2400 Hz harsh peak is attenuated by at least 12 dB (factor < 0.28) in the spectrum
+let sp_before = raw_mix.spectrum("hann", 8192);
+let sp_after = eq_mix.spectrum("hann", 8192);
+if (sp_after.mag_at_freq(2400.0) >= sp_before.mag_at_freq(2400.0) * 0.28) {
+  audio.assert_close(sp_after.mag_at_freq(2400.0), 0.0, 0.0);
+}
+
+sp_before.save_csv("build/eq_spec_before.csv", 8500.0);
+sp_after.save_csv("build/eq_spec_after.csv", 8500.0);
+dip_mud.save_response_csv("build/eq_curve_mud.csv", 512, 30.0, 9000.0);
+cut_harsh.save_response_csv("build/eq_curve_harsh.csv", 512, 30.0, 9000.0);
+air_shelf.save_response_csv("build/eq_curve_air.csv", 512, 30.0, 9000.0);
+
+let sg_before = raw_mix.spectrogram(512, 256, "hann", 7500.0);
+let sg_after = eq_mix.spectrogram(512, 256, "hann", 7500.0);
+sg_before.save_csv("build/eq_sgram_before.csv", -78.0);
+sg_after.save_csv("build/eq_sgram_after.csv", -78.0);
+
+# Save side-by-side Before (first 1.6 s) -> After (next 1.6 s) audio comparison
+let compare_wav = raw_mix.slice(0.0, 1.55).fade(0.01, 0.03).pad(0.0, 0.08).concat(eq_mix.slice(0.0, 1.55).fade(0.01, 0.03));
+compare_wav.save_wav("audio/eq_before_after.wav", 16);
+end _lmcode_
+savedsl(a, "build/eq_before_after.dslb");
+r1 = system ${dsl_cli(a)} --dsl build/eq_before_after.dslb;
+assert(r1.code == 0);
+
+draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+plot.png("images/eq_before_after.png", 940, 620);
+plot.cmd("set datafile separator ','");
+plot.cmd("set multiplot layout 2,2 title '4-Band Parametric Mastering EQ: Before vs After Spectrograms and Spectrum' font ',13'");
+plot.cmd("set border 3; set tics nomirror; set grid lc rgb '#e0e0e0'");
+
+plot.cmd("set title 'Before EQ (220 Hz Mud + 2.4 kHz Ring)' font ',11'; set xlabel 'Time (s)'; set ylabel 'Frequency (Hz)'");
+plot.cmd("set xrange [0:1.9]; set yrange [0:7000]; set cbrange [-70:0]; unset colorbox");
+plot.cmd("set pm3d map; set palette defined (0 '#081d58', 0.25 '#225ea8', 0.5 '#41b6c4', 0.75 '#fed976', 1 '#bd0026')");
+plot.cmd("splot 'build/eq_sgram_before.csv' u 1:2:3 notitle");
+
+plot.cmd("set title 'After 4-Band EQ (Cleaned + 5.2 kHz Air)' font ',11'; set xlabel 'Time (s)'; set ylabel 'Frequency (Hz)'");
+plot.cmd("set xrange [0:1.9]; set yrange [0:7000]; set cbrange [-70:0]; set cblabel 'dB'");
+plot.cmd("splot 'build/eq_sgram_after.csv' u 1:2:3 notitle");
+
+plot.cmd("unset pm3d");
+plot.cmd("set title 'Parametric EQ Band Transfer Curves' font ',11'; set xlabel 'Frequency (Hz)'; set ylabel 'Gain (dB)'");
+plot.cmd("set logscale x; set xrange [30:9000]; set yrange [-17:8]; set key bottom left nobox font ',9'");
+plot.cmd("plot 'build/eq_curve_mud.csv' u 1:3 w l lw 2.2 lc rgb '#ff7f0e' t '220 Hz Mud (-9 dB)', 'build/eq_curve_harsh.csv' u 1:3 w l lw 2.2 lc rgb '#d62728' t '2.4 kHz Cut (-16 dB)', 'build/eq_curve_air.csv' u 1:3 w l lw 2.2 lc rgb '#2ca02c' t '5.2 kHz Air (+5.5 dB)'");
+
+plot.cmd("unset logscale x");
+plot.cmd("set title 'FFT Spectrum: Before vs After EQ' font ',11'; set xlabel 'Frequency (Hz)'; set ylabel 'Level (dB)'");
+plot.cmd("set xrange [40:7000]; set yrange [-65:12]; set key top right nobox font ',9'");
+plot.cmd("plot 'build/eq_spec_before.csv' u 1:3 w l lw 1.5 lc rgb '#d62728' t 'Before EQ (Harsh 2.4 kHz Peak)', 'build/eq_spec_after.csv' u 1:3 w l lw 1.6 lc rgb '#1f77b4' t 'After 4-Band EQ'");
+
+plot.cmd("unset multiplot");
+plot.close();
+end _lmcode_
+savedsl(draw, "build/eq_before_after-draw.dslb");
+r2 = system ${dsl_cli(draw)} --dsl build/eq_before_after-draw.dslb;
+assert(r2.code == 0);
+print("wrote images/eq_before_after.png and audio/eq_before_after.wav");

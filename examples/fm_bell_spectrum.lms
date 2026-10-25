@@ -1,0 +1,73 @@
+# Chowning 2-Operator FM Synthesis (DaisySP Fm2): Bessel J_k(beta) sideband spectra
+# at modulation indices beta = 0.5, 1.5, 3.0 and tubular bell + harmonic FM showcase.
+mkdir("build");
+mkdir("audio");
+mkdir("images");
+
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+let sr = 22050;
+
+# Carrier fc = 1000 Hz, Modulator fm = 300 Hz (ratio = 0.3) -> sidebands at 1000 +/- k*300 Hz
+let fm_low = audio.fm(1000.0, 0.3, 0.5, 0.5, 0.85, sr);
+let fm_mid = audio.fm(1000.0, 0.3, 1.5, 0.5, 0.85, sr);
+let fm_high = audio.fm(1000.0, 0.3, 3.0, 0.5, 0.85, sr);
+
+# Verify sideband bandwidth expands as modulation index beta increases
+# Flat-top window: peak heights read true amplitudes (Hann would scallop up to 15 % between bins).
+let sp_low = fm_low.spectrum("flattop", 8192);
+let sp_mid = fm_mid.spectrum("flattop", 8192);
+let sp_high = fm_high.spectrum("flattop", 8192);
+# Chowning: sideband k has amplitude A |J_k(beta)|. beta = 1.5: J_0 = 0.5118, J_1 = 0.5579, J_2 = 0.2321.
+audio.assert_close(sp_mid.mag_at_freq(1000.0), 0.85 * 0.5118, 0.01);
+audio.assert_close(sp_mid.mag_at_freq(1300.0), 0.85 * 0.5579, 0.01);
+audio.assert_close(sp_mid.mag_at_freq(1600.0), 0.85 * 0.2321, 0.01);
+if (sp_high.mag_at_freq(1900.0) <= sp_low.mag_at_freq(1900.0)) {
+  audio.assert_close(sp_high.mag_at_freq(1900.0), sp_low.mag_at_freq(1900.0), 0.0);
+}
+
+sp_low.save_csv("build/fm_spec_b05.csv", 3200.0);
+sp_mid.save_csv("build/fm_spec_b15.csv", 3200.0);
+sp_high.save_csv("build/fm_spec_b30.csv", 3200.0);
+fm_mid.slice(0.0, 0.012).save_csv("build/fm_wave_b15.csv");
+
+# Synthesize inharmonic tubular bell (ratio = sqrt(2) = 1.4142) + harmonic FM chord (2.8 s, 123 KB)
+let bell1 = audio.fm(440.0, 1.41421356, 2.5, 1.2, 0.8, sr).adsr(0.003, 0.35, 0.25, 0.8);
+let bell2 = audio.fm(659.25, 1.41421356, 2.2, 1.2, 0.75, sr).adsr(0.003, 0.35, 0.25, 0.8);
+let brass = audio.fm(220.0, 1.0, 1.8, 1.2, 0.6, sr).mix(audio.fm(330.0, 1.0, 1.6, 1.2, 0.5, sr)).adsr(0.12, 0.25, 0.75, 0.35);
+let showcase = bell1.mix(bell2, 0.85, 0.4).mix(brass, 0.9, 1.5).reverb(0.80, 6500.0, 0.25).normalize(0.92);
+showcase.save_wav("audio/fm_bell_spectrum.wav", 16);
+end _lmcode_
+savedsl(a, "build/fm_bell_spectrum.dslb");
+r1 = system ${dsl_cli(a)} --dsl build/fm_bell_spectrum.dslb;
+if (r1.code != 0) { println(r1.stderr); }
+assert(r1.code == 0);
+
+draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+plot.png("images/fm_bell_spectrum.png", 980, 660);
+plot.cmd("set datafile separator ','; set encoding utf8; set samples 10");
+plot.cmd("set multiplot layout 2,2 title 'Chowning 2-Operator FM Synthesis: Bessel J_k(beta) Sideband Evolution (fc=1000 Hz, fm=300 Hz)' font ',13'");
+plot.cmd("set border 3; set tics nomirror; set grid lc rgb '#e0e0e0'");
+
+plot.cmd("set title 'FM Waveform (fc=1000 Hz, fm=300 Hz, beta=1.5)'; set xlabel 'Time (ms)'; set ylabel 'Amplitude'");
+plot.cmd("set xrange [0:12]; set yrange [-1.0:1.0]; unset key");
+plot.cmd("plot 'build/fm_wave_b15.csv' u ($1*1000):2 w l lw 2.0 lc rgb '#8c564b'");
+
+plot.cmd("set title 'Low Modulation (beta = 0.5): Narrow Sidebands'; set xlabel 'Frequency (Hz)'; set ylabel 'Amplitude'");
+plot.cmd("set xrange [0:3000]; set yrange [0:0.85]; set key top right nobox font ',9'");
+plot.cmd("plot 'build/fm_spec_b05.csv' u 1:2 w l lw 2.0 lc rgb '#1f77b4' t 'flat-top FFT', '+' u (1000+300*($0-3)):(0.85*abs(besjn(int($0)-3, 0.5))) every ::0::9 w p pt 6 ps 1.6 lc rgb '#111827' t '0.85 |J_k(β)|'");
+
+plot.cmd("set title 'Medium Modulation (beta = 1.5): J_1 and J_2 Growth'; set xlabel 'Frequency (Hz)'; set ylabel 'Amplitude'");
+plot.cmd("set xrange [0:3000]; set yrange [0:0.65]; set key top right nobox font ',9'");
+plot.cmd("plot 'build/fm_spec_b15.csv' u 1:2 w l lw 2.0 lc rgb '#ff7f0e' t 'flat-top FFT', '+' u (1000+300*($0-3)):(0.85*abs(besjn(int($0)-3, 1.5))) every ::0::9 w p pt 6 ps 1.6 lc rgb '#111827' t '0.85 |J_k(β)|'");
+
+plot.cmd("set title 'High Modulation (beta = 3.0): Wide Sidebands'; set xlabel 'Frequency (Hz)'; set ylabel 'Amplitude'");
+plot.cmd("set xrange [0:3000]; set yrange [0:0.5]; set key top right nobox font ',9'");
+plot.cmd("plot 'build/fm_spec_b30.csv' u 1:2 w l lw 2.0 lc rgb '#d62728' t 'flat-top FFT', '+' u (1000+300*($0-3)):(0.85*abs(besjn(int($0)-3, 3.0))) every ::0::9 w p pt 6 ps 1.6 lc rgb '#111827' t '0.85 |J_k(β)|'");
+
+plot.cmd("unset multiplot");
+plot.close();
+end _lmcode_
+savedsl(draw, "build/fm_bell_spectrum-draw.dslb");
+r2 = system ${dsl_cli(draw)} --dsl build/fm_bell_spectrum-draw.dslb;
+assert(r2.code == 0);
+print("wrote images/fm_bell_spectrum.png and audio/fm_bell_spectrum.wav");
