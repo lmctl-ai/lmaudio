@@ -276,9 +276,7 @@ lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/c
 
 ## Use it
 
-Download the binary for your platform from the [releases](https://github.com/lmctl-ai/lmaudio/releases)
-(`lmaudio-linux-x64` and `lmaudio-linux-arm64` built against dynamic glibc >= 2.35 with all third-party libraries and C++ runtimes linked statically, `lmaudio-macos-arm64`, `lmaudio-macos-x64`,
-`lmaudio-windows-x64.exe`), or let `lmscript` fetch it: a program is a `_dsl_` block compiled by
+The current release lane publishes `lmaudio-linux-x64` and `lmaudio-linux-arm64`, built against dynamic glibc >= 2.35 with all third-party libraries and C++ runtimes linked statically. Earlier releases may also contain macOS and Windows assets; those platforms are not produced by the current lane. Download from the [releases](https://github.com/lmctl-ai/lmaudio/releases), or let `lmscript` fetch it: a program is a `_dsl_` block compiled by
 `lmscript` (`npm i -g @lmctl-ai/lmctl`), which finds `lmaudio` on `PATH` or downloads the release
 on first use (`install=`).
 
