@@ -17,7 +17,7 @@ mkdir("build/rendered");
 mkdir("images");
 mkdir("audio");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/compressor_transfer_curve.dslb";
 let sr = 22050;
 let thr = -20.0;
 
@@ -75,13 +75,13 @@ phrase.save_csv("build/comp_phrase_in.csv", 2500);
 level.save_csv("build/comp_phrase_out.csv", 2500);
 phrase.normalize(0.9).concat(audio.silence(0.25, sr)).concat(level.normalize(0.9)).save_wav("audio/compressor_transfer_curve.wav", 16);
 end _lmcode_
-savedsl(a, "build/compressor_transfer_curve.dslb");
-r1 = system ${dsl_cli(a)} --dsl build/compressor_transfer_curve.dslb;
+
+r1 = system ${"lmaudio"} --lmcode build/compressor_transfer_curve.dslb;
 for (l in lines(r1.stdout)) { if (!starts_with(l, "{")) { println(l); } }
 if (r1.code != 0) { println(r1.stderr); }
 assert(r1.code == 0);
 
-d = _lmcode_ cli="lmdraw" install="github:lmctl-ai/lmdraw@latest";
+d = _lmcode_ cli="lmdraw" install="github:lmctl-ai/lmdraw@latest" out="build/compressor_transfer_curve-diagram.dslb";
 fn box(x: float, y: float, w: float, h: float, fill: string, stroke: string, t1: string, t2: string) -> int {
   scene.rect(x, y, w, h, fill).set_attr("stroke", stroke);
   scene.text(x + w / 2.0, y + h / 2.0 - 2.0, 13.0, t1, "#0f172a").set_attr("text-anchor", "middle");
@@ -109,12 +109,12 @@ scene.text(235.0, 240.0, 12.0, "above T:  out = T + (in - T) / R", "#1e3a8a").se
 scene.text(235.0, 262.0, 12.0, "below T:  out = in", "#1e3a8a").set_attr("text-anchor", "middle");
 scene.render_png("build/rendered/comp_flow.png", 470, 290, 2);
 end _lmcode_
-savedsl(d, "build/compressor_transfer_curve-diagram.dslb");
-r2 = system ${dsl_cli(d)} --dsl build/compressor_transfer_curve-diagram.dslb;
+
+r2 = system ${"lmdraw"} --lmcode build/compressor_transfer_curve-diagram.dslb;
 if (r2.code != 0) { println(r2.stderr); }
 assert(r2.code == 0);
 
-p = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+p = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/compressor_transfer_curve-plot.dslb";
 plot.png("images/compressor_transfer_curve.png", 980, 720);
 plot.cmd("set encoding utf8");
 plot.cmd("set datafile separator ','");
@@ -147,8 +147,8 @@ plot.cmd("plot 'build/comp_phrase_in.csv' u 1:($2*1.3+1.15) w l lw 0.8 lc rgb '#
 plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
-savedsl(p, "build/compressor_transfer_curve-plot.dslb");
-r3 = system ${dsl_cli(p)} --dsl build/compressor_transfer_curve-plot.dslb;
+
+r3 = system ${"lmplot"} --lmcode build/compressor_transfer_curve-plot.dslb;
 if (r3.code != 0) { println(r3.stderr); }
 assert(r3.code == 0);
 println("wrote images/compressor_transfer_curve.png and audio/compressor_transfer_curve.wav");

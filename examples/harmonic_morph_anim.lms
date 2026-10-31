@@ -6,7 +6,7 @@ mkdir("build/morph_frames");
 mkdir("audio");
 mkdir("images");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/harmonic_morph_anim.dslb";
 let sr = 22050;
 let f0 = 220.0;
 let base = audio.sine(f0, 0.12, 0.85, sr);
@@ -32,11 +32,11 @@ for (k in range(0, 24)) {
 full_audio = full_audio.reverb(0.78, 6000.0, 0.22).normalize(0.92);
 full_audio.save_wav("audio/harmonic_morph_anim.wav", 16);
 end _lmcode_
-savedsl(a, "build/harmonic_morph_anim.dslb");
-r1 = system ${dsl_cli(a)} --dsl build/harmonic_morph_anim.dslb;
+
+r1 = system ${"lmaudio"} --lmcode build/harmonic_morph_anim.dslb;
 assert(r1.code == 0);
 
-draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/harmonic_morph_anim-draw.dslb";
 plot.cmd("set datafile separator ','");
 for (k in range(0, 24)) {
   plot.png("build/morph_frames/f" + str(k) + ".png", 760, 480);
@@ -55,8 +55,8 @@ for (k in range(0, 24)) {
   plot.close();
 }
 end _lmcode_
-savedsl(draw, "build/harmonic_morph_anim-draw.dslb");
-r2 = system ${dsl_cli(draw)} --dsl build/harmonic_morph_anim-draw.dslb;
+
+r2 = system ${"lmplot"} --lmcode build/harmonic_morph_anim-draw.dslb;
 assert(r2.code == 0);
 
 r3 = system ffmpeg -y -loglevel error -framerate 10 -i build/morph_frames/f%d.png -vf "split[a][b];[a]palettegen=max_colors=96[p];[b][p]paletteuse=dither=none" images/harmonic_morph_anim.gif;

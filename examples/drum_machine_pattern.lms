@@ -10,7 +10,7 @@ mkdir("build/rendered");
 mkdir("images");
 mkdir("audio");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/drum_machine_pattern.dslb";
 let sr = 22050;
 let bpm = 124.0;
 let kick = audio.drum("kick", 55.0, 0.5, 0.55, 0.45, 0.9, sr).normalize(0.95);
@@ -42,14 +42,14 @@ open.spectrum("hann", 16384).save_csv("build/dm_hat_spec.csv", 8000.0);
 audio.save_text("build/dm_grid.gp", "bar = " + str(bar) + "; step = " + str(bar / 16.0) + "\n");
 audio.print("two bars at " + str(bpm) + " BPM = " + str(2.0 * bar) + " s; kick pitch " + str(kick.slice(0.05, 0.45).pitch(30.0, 200.0)) + " Hz");
 end _lmcode_
-savedsl(a, "build/drum_machine_pattern.dslb");
-r1 = system ${dsl_cli(a)} --dsl build/drum_machine_pattern.dslb;
+
+r1 = system ${"lmaudio"} --lmcode build/drum_machine_pattern.dslb;
 for (l in lines(r1.stdout)) { if (!starts_with(l, "{")) { println(l); } }
 if (r1.code != 0) { println(r1.stderr); }
 assert(r1.code == 0);
 
 # The step grid as a drum-machine panel (bar 1).
-d = _lmcode_ cli="lmdraw" install="github:lmctl-ai/lmdraw@latest";
+d = _lmcode_ cli="lmdraw" install="github:lmctl-ai/lmdraw@latest" out="build/drum_machine_pattern-grid.dslb";
 scene.canvas(940, 210, "#1e293b");
 fn cell(rr: int, step: int, fill: string) -> int {
   let x = 150.0 + float(step) * 48.0 + float(step / 4) * 8.0;
@@ -80,12 +80,12 @@ z = cell(1, 4, "#38bdf8");
 z = cell(1, 12, "#38bdf8");
 scene.render_png("build/rendered/dm_grid.png", 940, 210, 2);
 end _lmcode_
-savedsl(d, "build/drum_machine_pattern-grid.dslb");
-r2 = system ${dsl_cli(d)} --dsl build/drum_machine_pattern-grid.dslb;
+
+r2 = system ${"lmdraw"} --lmcode build/drum_machine_pattern-grid.dslb;
 if (r2.code != 0) { println(r2.stderr); }
 assert(r2.code == 0);
 
-p = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+p = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/drum_machine_pattern-plot.dslb";
 plot.png("images/drum_machine_pattern.png", 980, 760);
 plot.cmd("set encoding utf8");
 plot.cmd("set datafile separator ','");
@@ -118,8 +118,8 @@ plot.cmd("plot 'build/dm_kick_spec.csv' u 1:3 w l lw 1.8 lc rgb '#f97316' t 'kic
 plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
-savedsl(p, "build/drum_machine_pattern-plot.dslb");
-r3 = system ${dsl_cli(p)} --dsl build/drum_machine_pattern-plot.dslb;
+
+r3 = system ${"lmplot"} --lmcode build/drum_machine_pattern-plot.dslb;
 if (r3.code != 0) { println(r3.stderr); }
 assert(r3.code == 0);
 println("wrote images/drum_machine_pattern.png and audio/drum_machine_pattern.wav");

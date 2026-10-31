@@ -292,7 +292,7 @@ audio.print("pitch of the first note: " + str(arp.slice(0.0, 0.25).pitch()) + " 
 out.save_wav("audio/hello.wav", 16);
 end _lmcode_
 savedsl(a, "private implementation detail");
-r = system ${dsl_cli(a)} --dsl private implementation detail;   # run it with the binary it was compiled against
+r = system ${dsl_cli(a)} --lmcode private implementation detail;   # run it with the binary it was compiled against
 for (l in lines(r.stdout)) { if (!starts_with(l, "{")) { println(l); } }
 assert(r.code == 0);
 ```
@@ -350,7 +350,7 @@ Durations are in seconds, frequencies in Hz, `sr` is the sample rate (100 to 384
 | `Biquad.` `gain_at`, `db_at`, `phase_deg_at`, `apply`, `save_response_csv` | exact filter response |
 | `save_wav(path[, 16\|24\|32])`, `save_csv(path[, max_points[, stride]])` | output |
 
-The full list of signatures: `lmaudio --dsl-signatures`; the schema: private implementation detail
+The full list of signatures: `lmaudio --lmcode-signatures`; the schema: private implementation detail
 How it is built and why: private implementation detail
 
 ## Honest limits
@@ -376,11 +376,11 @@ A program may use at most 4096 MiB in total (buffers, spectra, FFT scratch, and 
 of the Soundpipe modules); beyond that it stops with a run error (exit 3) naming the limit instead
 of exhausting the machine. Set `LMAUDIO_MAX_MEMORY_MB` to change it (a positive whole number;
 anything else is a usage error, exit 2, on every command). Errors print one JSON line on stdout
-and one human-readable line on stderr. `lmaudio --dry-run --dsl prog.dslb` runs a program
+and one human-readable line on stderr. `lmaudio --dry-run --lmcode prog.dslb` runs a program
 without writing any file and lists what it would write.
 
 ```
-usage: lmaudio --version | --notices | --dsl-schema [--json] | --dsl-signatures | [--dry-run] --dsl FILE [FILE ...]
+usage: lmaudio --version | --notices | --lmcode-schema [--json] | --lmcode-signatures | [--dry-run] --lmcode FILE [FILE ...]
 ```
 
 ## License

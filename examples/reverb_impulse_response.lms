@@ -9,7 +9,7 @@ mkdir("build");
 mkdir("audio");
 mkdir("images");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/reverb_impulse_response.dslb";
 let sr = 22050;
 
 # Unit impulse padded to 4 s to capture the full reverberant impulse response h(t).
@@ -48,13 +48,13 @@ let hall_demo = snare_hit.zitarev(1.8, 1.3, 6200.0, 0.42).concat(
 ).normalize(0.92);
 hall_demo.save_wav("audio/reverb_impulse_response.wav", 16);
 end _lmcode_
-savedsl(a, "build/reverb_impulse_response.dslb");
-r1 = system ${dsl_cli(a)} --dsl build/reverb_impulse_response.dslb;
+
+r1 = system ${"lmaudio"} --lmcode build/reverb_impulse_response.dslb;
 for (l in lines(r1.stdout)) { if (!starts_with(l, "{")) { println(l); } }
 if (r1.code != 0) { println(r1.stderr); }
 assert(r1.code == 0);
 
-draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/reverb_impulse_response-draw.dslb";
 plot.png("images/reverb_impulse_response.png", 980, 660);
 plot.cmd("set datafile separator ','");
 plot.cmd("load 'build/ir_rt.gp'");
@@ -84,7 +84,7 @@ plot.cmd("plot 'build/ir_hall_early_spec.csv' u 1:3 w l lw 1.5 lc rgb '#1f77b4' 
 plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
-savedsl(draw, "build/reverb_impulse_response-draw.dslb");
-r2 = system ${dsl_cli(draw)} --dsl build/reverb_impulse_response-draw.dslb;
+
+r2 = system ${"lmplot"} --lmcode build/reverb_impulse_response-draw.dslb;
 assert(r2.code == 0);
 print("wrote images/reverb_impulse_response.png and audio/reverb_impulse_response.wav");

@@ -12,7 +12,7 @@ mkdir("build/rendered");
 mkdir("images");
 mkdir("audio");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/granular_texture.dslb";
 let sr = 22050;
 let src = audio.sequence("E4:0.5 G4:0.5 B4:0.5 E5:0.5", 120.0, "karplus", sr).normalize(0.9);
 let n_seg = 16;
@@ -41,14 +41,14 @@ src.spectrogram(1024, 128, "hann", 1500.0).save_csv("build/gr_src_sg.csv", -80.0
 cloud.spectrogram(1024, 128, "hann", 1500.0).save_csv("build/gr_cloud_sg.csv", -80.0);
 src.concat(audio.silence(0.1, sr)).concat(cloud.slice(0.0, 3.25).fade(0.0, 0.3)).save_wav("audio/granular_texture.wav", 16);
 end _lmcode_
-savedsl(a, "build/granular_texture.dslb");
-r1 = system ${dsl_cli(a)} --dsl build/granular_texture.dslb;
+
+r1 = system ${"lmaudio"} --lmcode build/granular_texture.dslb;
 for (l in lines(r1.stdout)) { if (!starts_with(l, "{")) { println(l); } }
 if (r1.code != 0) { println(r1.stderr); }
 assert(r1.code == 0);
 
 # How grains are taken from the source and laid out in the output.
-d = _lmcode_ cli="lmdraw" install="github:lmctl-ai/lmdraw@latest";
+d = _lmcode_ cli="lmdraw" install="github:lmctl-ai/lmdraw@latest" out="build/granular_texture-diagram.dslb";
 scene.canvas(940, 190, "#ffffff");
 scene.text(20.0, 40.0, 13.0, "source (1 s)", "#0f172a");
 scene.rect(150.0, 24.0, 290.0, 26.0, "#e0f2fe").set_attr("stroke", "#0369a1");
@@ -65,12 +65,12 @@ scene.text(470.0, 92.0, 12.0, "read position creeps forward slowly, grains are w
 scene.text(470.0, 184.0, 11.0, "Hann-windowed grains, 90 ms, 70 per second, overlapping (only 1 in 9 drawn)", "#475569").set_attr("text-anchor", "middle");
 scene.render_png("build/rendered/gr_map.png", 940, 190, 2);
 end _lmcode_
-savedsl(d, "build/granular_texture-diagram.dslb");
-r2 = system ${dsl_cli(d)} --dsl build/granular_texture-diagram.dslb;
+
+r2 = system ${"lmdraw"} --lmcode build/granular_texture-diagram.dslb;
 if (r2.code != 0) { println(r2.stderr); }
 assert(r2.code == 0);
 
-p = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+p = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/granular_texture-plot.dslb";
 plot.png("images/granular_texture.png", 980, 720);
 plot.cmd("set encoding utf8");
 plot.cmd("set datafile separator ','");
@@ -105,8 +105,8 @@ plot.cmd("plot 'build/gr_cloud.csv' u 1:2 w l lw 0.6 lc rgb '#b45309' notitle");
 plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
-savedsl(p, "build/granular_texture-plot.dslb");
-r3 = system ${dsl_cli(p)} --dsl build/granular_texture-plot.dslb;
+
+r3 = system ${"lmplot"} --lmcode build/granular_texture-plot.dslb;
 if (r3.code != 0) { println(r3.stderr); }
 assert(r3.code == 0);
 println("wrote images/granular_texture.png and audio/granular_texture.wav");

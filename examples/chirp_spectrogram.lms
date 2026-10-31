@@ -4,7 +4,7 @@ mkdir("build");
 mkdir("audio");
 mkdir("images");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/chirp_spectrogram.dslb";
 let sr = 22050;
 let dur = 1.25;
 
@@ -25,11 +25,11 @@ sg_log.save_csv("build/chirp_log_sgram.csv", -80.0);
 let both = ch_lin.pad(0.0, 0.1).concat(ch_log).normalize(0.92);
 both.save_wav("audio/chirp_spectrogram.wav", 16);
 end _lmcode_
-savedsl(a, "build/chirp_spectrogram.dslb");
-r1 = system ${dsl_cli(a)} --dsl build/chirp_spectrogram.dslb;
+
+r1 = system ${"lmaudio"} --lmcode build/chirp_spectrogram.dslb;
 assert(r1.code == 0);
 
-draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/chirp_spectrogram-draw.dslb";
 plot.png("images/chirp_spectrogram.png", 980, 620);
 plot.cmd("set datafile separator ','");
 plot.cmd("set multiplot layout 1,2 title 'Linear vs Exponential Swept-Sine Chirp STFT Spectrograms (150 Hz -> 4200 Hz)' font ',13'");
@@ -45,7 +45,7 @@ plot.cmd("splot 'build/chirp_log_sgram.csv' u 1:2:3 notitle");
 plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
-savedsl(draw, "build/chirp_spectrogram-draw.dslb");
-r2 = system ${dsl_cli(draw)} --dsl build/chirp_spectrogram-draw.dslb;
+
+r2 = system ${"lmplot"} --lmcode build/chirp_spectrogram-draw.dslb;
 assert(r2.code == 0);
 print("wrote images/chirp_spectrogram.png and audio/chirp_spectrogram.wav");

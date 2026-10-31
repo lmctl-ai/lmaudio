@@ -5,7 +5,7 @@ mkdir("build");
 mkdir("audio");
 mkdir("images");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/reverb_and_wavefolder.dslb";
 let sr = 22050;
 let f0 = 220.0;
 
@@ -41,11 +41,11 @@ let wet_hall = dry_seq.zitarev(2.6, 1.8, 5000.0, 0.42).normalize(0.92);
 wet_hall.save_wav("audio/reverb_and_wavefolder.wav", 16);
 wet_hall.save_csv("build/zita_motif_wave.csv", 1800);
 end _lmcode_
-savedsl(a, "build/reverb_and_wavefolder.dslb");
-r1 = system ${dsl_cli(a)} --dsl build/reverb_and_wavefolder.dslb;
+
+r1 = system ${"lmaudio"} --lmcode build/reverb_and_wavefolder.dslb;
 assert(r1.code == 0);
 
-draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/reverb_and_wavefolder-draw.dslb";
 plot.png("images/reverb_and_wavefolder.png", 980, 660);
 plot.cmd("set datafile separator ','");
 plot.cmd("set multiplot layout 2,2 title 'West-Coast Buchla Wavefolding and FDN Studio FDN Reverb' font ',13'");
@@ -70,7 +70,7 @@ plot.cmd("plot 'build/zita_motif_wave.csv' u 1:2 w l lw 1.2 lc rgb '#9467bd'");
 plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
-savedsl(draw, "build/reverb_and_wavefolder-draw.dslb");
-r2 = system ${dsl_cli(draw)} --dsl build/reverb_and_wavefolder-draw.dslb;
+
+r2 = system ${"lmplot"} --lmcode build/reverb_and_wavefolder-draw.dslb;
 assert(r2.code == 0);
 print("wrote images/reverb_and_wavefolder.png and audio/reverb_and_wavefolder.wav");

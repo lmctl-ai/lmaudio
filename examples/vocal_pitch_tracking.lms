@@ -4,7 +4,7 @@ mkdir("build");
 mkdir("audio");
 mkdir("images");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/vocal_pitch_tracking.dslb";
 let sr = 22050;
 
 # Synthesize a sung vocal glide (220 Hz -> 374 Hz with 5.5 Hz +/- 5 Hz vibrato and 3 glottal harmonics),
@@ -42,12 +42,12 @@ vocal.pitch_track_csv("build/vocal_track.csv", 0.02, 0.06, 80.0, 800.0);
 let sg = vocal.spectrogram(512, 128, "hann", 2400.0);
 sg.save_csv("build/vocal_sgram.csv", -75.0);
 end _lmcode_
-savedsl(a, "build/vocal_pitch_tracking.dslb");
-r1 = system ${dsl_cli(a)} --dsl build/vocal_pitch_tracking.dslb;
+
+r1 = system ${"lmaudio"} --lmcode build/vocal_pitch_tracking.dslb;
 if (r1.code != 0) { println(r1.stderr); }
 assert(r1.code == 0);
 
-draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/vocal_pitch_tracking-draw.dslb";
 plot.png("images/vocal_pitch_tracking.png", 980, 660);
 plot.cmd("set datafile separator ','");
 plot.cmd("set multiplot layout 2,1 title 'YIN pitch tracking of a sung vibrato glide with a breath gap' font ',13'");
@@ -68,7 +68,7 @@ plot.cmd("plot truth(x) w l lw 5 lc rgb '#cbd5e1' t 'true f0 (glide 220 -> 374 H
 plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
-savedsl(draw, "build/vocal_pitch_tracking-draw.dslb");
-r2 = system ${dsl_cli(draw)} --dsl build/vocal_pitch_tracking-draw.dslb;
+
+r2 = system ${"lmplot"} --lmcode build/vocal_pitch_tracking-draw.dslb;
 assert(r2.code == 0);
 print("wrote images/vocal_pitch_tracking.png and audio/vocal_pitch_tracking.wav");

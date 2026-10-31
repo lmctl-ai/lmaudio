@@ -14,7 +14,7 @@ mkdir("build/rendered");
 mkdir("images");
 mkdir("audio");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/synthesis_methods_compared.dslb";
 let sr = 22050;
 let f0 = 220.0;
 let dur = 1.2;
@@ -61,13 +61,13 @@ fm.slice(0.5, 0.5 + 2.0 / f0).save_csv("build/synth_wave_fm.csv");
 let gap = audio.silence(0.15, sr);
 sub.concat(gap).concat(add).concat(gap).concat(fm).save_wav("audio/synthesis_methods_compared.wav", 16);
 end _lmcode_
-savedsl(a, "build/synthesis_methods_compared.dslb");
-r1 = system ${dsl_cli(a)} --dsl build/synthesis_methods_compared.dslb;
+
+r1 = system ${"lmaudio"} --lmcode build/synthesis_methods_compared.dslb;
 for (l in lines(r1.stdout)) { if (!starts_with(l, "{")) { println(l); } }
 if (r1.code != 0) { println(r1.stderr); }
 assert(r1.code == 0);
 
-d = _lmcode_ cli="lmdraw" install="github:lmctl-ai/lmdraw@latest";
+d = _lmcode_ cli="lmdraw" install="github:lmctl-ai/lmdraw@latest" out="build/synthesis_methods_compared-diagram.dslb";
 fn box(x: float, y: float, w: float, h: float, fill: string, stroke: string, t1: string, t2: string) -> int {
   scene.rect(x, y, w, h, fill).set_attr("stroke", stroke);
   scene.text(x + w / 2.0, y + h / 2.0 - 1.0, 13.0, t1, "#0f172a").set_attr("text-anchor", "middle");
@@ -107,12 +107,12 @@ scene.line(312.0, 30.0, 312.0, 236.0, "#e2e8f0", 1.0);
 scene.line(627.0, 30.0, 627.0, 236.0, "#e2e8f0", 1.0);
 scene.render_png("build/rendered/synth_flows.png", 940, 250, 2);
 end _lmcode_
-savedsl(d, "build/synthesis_methods_compared-diagram.dslb");
-r2 = system ${dsl_cli(d)} --dsl build/synthesis_methods_compared-diagram.dslb;
+
+r2 = system ${"lmdraw"} --lmcode build/synthesis_methods_compared-diagram.dslb;
 if (r2.code != 0) { println(r2.stderr); }
 assert(r2.code == 0);
 
-p = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+p = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/synthesis_methods_compared-plot.dslb";
 plot.png("images/synthesis_methods_compared.png", 980, 760);
 plot.cmd("set encoding utf8");
 plot.cmd("set datafile separator ','");
@@ -137,8 +137,8 @@ plot.cmd("plot 'build/synth_harmonics.csv' u ($1-0.28):($2+80):(0.26) w boxes lc
 plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
-savedsl(p, "build/synthesis_methods_compared-plot.dslb");
-r3 = system ${dsl_cli(p)} --dsl build/synthesis_methods_compared-plot.dslb;
+
+r3 = system ${"lmplot"} --lmcode build/synthesis_methods_compared-plot.dslb;
 if (r3.code != 0) { println(r3.stderr); }
 assert(r3.code == 0);
 println("wrote images/synthesis_methods_compared.png and audio/synthesis_methods_compared.wav");

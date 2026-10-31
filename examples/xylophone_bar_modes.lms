@@ -15,7 +15,7 @@ mkdir("build/rendered");
 mkdir("images");
 mkdir("audio");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/xylophone_bar_modes.dslb";
 let sr = 44100;
 let kappa = 60.0;
 let ff = audio.bar(3, 3, kappa, 2.0, 2.0, 0.8, sr);
@@ -88,14 +88,14 @@ phrase = hit(phrase, "C5", 2.7, 1.4);
 phrase = hit(phrase, "C6", 2.7, 1.4);
 phrase.resample(22050).slice(0.0, 4.2).normalize(0.9).fade(0.0, 0.3).save_wav("audio/xylophone_bar_modes.wav", 16);
 end _lmcode_
-savedsl(a, "build/xylophone_bar_modes.dslb");
-r1 = system ${dsl_cli(a)} --dsl build/xylophone_bar_modes.dslb;
+
+r1 = system ${"lmaudio"} --lmcode build/xylophone_bar_modes.dslb;
 for (l in lines(r1.stdout)) { if (!starts_with(l, "{")) { println(l); } }
 if (r1.code != 0) { println(r1.stderr); }
 assert(r1.code == 0);
 
 # The three supports and the shape of each bar's first mode.
-d = _lmcode_ cli="lmdraw" install="github:lmctl-ai/lmdraw@latest";
+d = _lmcode_ cli="lmdraw" install="github:lmctl-ai/lmdraw@latest" out="build/xylophone_bar_modes-diagram.dslb";
 scene.canvas(460, 330, "#ffffff");
 scene.text(230.0, 22.0, 15.0, "Supports and first mode shape", "#0f172a").set_attr("text-anchor", "middle");
 # free-free: bar on two cords at the nodes (0.224 L and 0.776 L)
@@ -120,12 +120,12 @@ scene.path("M 402 278 L 410 262 L 418 278 Z", "#334155", "#334155", 1.0);
 scene.text(270.0, 316.0, 11.0, "hinged ends: modes 1 : 4 : 9 (n squared)", "#475569").set_attr("text-anchor", "middle");
 scene.render_png("build/rendered/bar_supports.png", 460, 330, 2);
 end _lmcode_
-savedsl(d, "build/xylophone_bar_modes-diagram.dslb");
-r2 = system ${dsl_cli(d)} --dsl build/xylophone_bar_modes-diagram.dslb;
+
+r2 = system ${"lmdraw"} --lmcode build/xylophone_bar_modes-diagram.dslb;
 if (r2.code != 0) { println(r2.stderr); }
 assert(r2.code == 0);
 
-p = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
+p = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/xylophone_bar_modes-plot.dslb";
 plot.png("images/xylophone_bar_modes.png", 980, 720);
 plot.cmd("set encoding utf8");
 plot.cmd("set datafile separator ','");
@@ -152,8 +152,8 @@ plot.cmd("plot 'build/bar_spec_ff.csv' u ($1/f1ff):(max(-60,$3-pkff)) w l lw 1.6
 plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
-savedsl(p, "build/xylophone_bar_modes-plot.dslb");
-r3 = system ${dsl_cli(p)} --dsl build/xylophone_bar_modes-plot.dslb;
+
+r3 = system ${"lmplot"} --lmcode build/xylophone_bar_modes-plot.dslb;
 if (r3.code != 0) { println(r3.stderr); }
 assert(r3.code == 0);
 println("wrote images/xylophone_bar_modes.png and audio/xylophone_bar_modes.wav");
