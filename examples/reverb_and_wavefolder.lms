@@ -5,7 +5,7 @@ mkdir("build");
 mkdir("audio");
 mkdir("images");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/reverb_and_wavefolder.dslb";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
 let sr = 22050;
 let f0 = 220.0;
 
@@ -42,10 +42,10 @@ wet_hall.save_wav("audio/reverb_and_wavefolder.wav", 16);
 wet_hall.save_csv("build/zita_motif_wave.csv", 1800);
 end _lmcode_
 
-r1 = system ${"lmaudio"} --lmcode build/reverb_and_wavefolder.dslb;
-assert(r1.code == 0);
+r1 = run_lmcode(a);
+require(r1.ok, "host failed");
 
-draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/reverb_and_wavefolder-draw.dslb";
+draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
 plot.png("images/reverb_and_wavefolder.png", 980, 660);
 plot.cmd("set datafile separator ','");
 plot.cmd("set multiplot layout 2,2 title 'West-Coast Buchla Wavefolding and FDN Studio FDN Reverb' font ',13'");
@@ -71,6 +71,6 @@ plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
 
-r2 = system ${"lmplot"} --lmcode build/reverb_and_wavefolder-draw.dslb;
-assert(r2.code == 0);
+r2 = run_lmcode(draw);
+require(r2.ok, "host failed");
 print("wrote images/reverb_and_wavefolder.png and audio/reverb_and_wavefolder.wav");

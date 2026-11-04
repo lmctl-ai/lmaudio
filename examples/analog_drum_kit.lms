@@ -4,7 +4,7 @@ mkdir("build");
 mkdir("audio");
 mkdir("images");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/analog_drum_kit.dslb";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
 let sr = 22050;
 
 let kick = audio.drum("kick", 55.0, 0.35, 0.65, 0.55, 0.90, sr).normalize(0.95);
@@ -51,10 +51,10 @@ groove.save_wav("audio/analog_drum_kit.wav", 16);
 groove.save_csv("build/drum_groove_wave.csv", 2000);
 end _lmcode_
 
-r1 = system ${"lmaudio"} --lmcode build/analog_drum_kit.dslb;
-assert(r1.code == 0);
+r1 = run_lmcode(a);
+require(r1.ok, "host failed");
 
-draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/analog_drum_kit-draw.dslb";
+draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
 plot.png("images/analog_drum_kit.png", 980, 660);
 plot.cmd("set datafile separator ','");
 plot.cmd("set multiplot layout 2,2 title '808 Analog and Synthetic Drum Voices: Transients, Spectra and Breakbeat Groove' font ',13'");
@@ -80,6 +80,6 @@ plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
 
-r2 = system ${"lmplot"} --lmcode build/analog_drum_kit-draw.dslb;
-assert(r2.code == 0);
+r2 = run_lmcode(draw);
+require(r2.ok, "host failed");
 print("wrote images/analog_drum_kit.png and audio/analog_drum_kit.wav");

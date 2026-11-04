@@ -4,7 +4,7 @@ mkdir("build");
 mkdir("audio");
 mkdir("images");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/polyblep_harmonics.dslb";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
 let sr = 22050;
 let f0 = 440.0;
 
@@ -40,10 +40,10 @@ let showcase = w_sin.adsr(0.02, 0.08, 0.8, 0.08)
 showcase.save_wav("audio/polyblep_harmonics.wav", 16);
 end _lmcode_
 
-r1 = system ${"lmaudio"} --lmcode build/polyblep_harmonics.dslb;
-assert(r1.code == 0);
+r1 = run_lmcode(a);
+require(r1.ok, "host failed");
 
-draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/polyblep_harmonics-draw.dslb";
+draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
 plot.png("images/polyblep_harmonics.png", 980, 660);
 plot.cmd("set datafile separator ','");
 plot.cmd("set multiplot layout 2,2 title 'Band-Limited PolyBLEP Oscillators at A4 = 440 Hz: Waveforms and Fourier Harmonics' font ',13'");
@@ -67,6 +67,6 @@ plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
 
-r2 = system ${"lmplot"} --lmcode build/polyblep_harmonics-draw.dslb;
-assert(r2.code == 0);
+r2 = run_lmcode(draw);
+require(r2.ok, "host failed");
 print("wrote images/polyblep_harmonics.png and audio/polyblep_harmonics.wav");

@@ -5,7 +5,7 @@ mkdir("build");
 mkdir("audio");
 mkdir("images");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/karplus_strong_harp.dslb";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
 let sr = 22050;
 
 # Compare bright long-decay pluck vs warm damped pluck at A4 = 440 Hz
@@ -26,10 +26,10 @@ harp.save_csv("build/ks_harp_wave.csv", 1800);
 harp.spectrogram(512, 128, "hann", 4500.0).save_csv("build/ks_harp_sgram.csv", -80.0);
 end _lmcode_
 
-r1 = system ${"lmaudio"} --lmcode build/karplus_strong_harp.dslb;
-assert(r1.code == 0);
+r1 = run_lmcode(a);
+require(r1.ok, "host failed");
 
-draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/karplus_strong_harp-draw.dslb";
+draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
 plot.png("images/karplus_strong_harp.png", 980, 660);
 plot.cmd("set datafile separator ','");
 plot.cmd("set multiplot layout 2,2 title 'Plucked-string harp: DaisySP StringVoice and FDN reverb' font ',13'");
@@ -53,6 +53,6 @@ plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
 
-r2 = system ${"lmplot"} --lmcode build/karplus_strong_harp-draw.dslb;
-assert(r2.code == 0);
+r2 = run_lmcode(draw);
+require(r2.ok, "host failed");
 print("wrote images/karplus_strong_harp.png and audio/karplus_strong_harp.wav");

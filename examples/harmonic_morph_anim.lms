@@ -6,7 +6,7 @@ mkdir("build/morph_frames");
 mkdir("audio");
 mkdir("images");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/harmonic_morph_anim.dslb";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
 let sr = 22050;
 let f0 = 220.0;
 let base = audio.sine(f0, 0.12, 0.85, sr);
@@ -33,10 +33,10 @@ full_audio = full_audio.reverb(0.78, 6000.0, 0.22).normalize(0.92);
 full_audio.save_wav("audio/harmonic_morph_anim.wav", 16);
 end _lmcode_
 
-r1 = system ${"lmaudio"} --lmcode build/harmonic_morph_anim.dslb;
-assert(r1.code == 0);
+r1 = run_lmcode(a);
+require(r1.ok, "host failed");
 
-draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/harmonic_morph_anim-draw.dslb";
+draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
 plot.cmd("set datafile separator ','");
 for (k in range(0, 24)) {
   plot.png("build/morph_frames/f" + str(k) + ".png", 760, 480);
@@ -56,9 +56,9 @@ for (k in range(0, 24)) {
 }
 end _lmcode_
 
-r2 = system ${"lmplot"} --lmcode build/harmonic_morph_anim-draw.dslb;
-assert(r2.code == 0);
+r2 = run_lmcode(draw);
+require(r2.ok, "host failed");
 
 r3 = system ffmpeg -y -loglevel error -framerate 10 -i build/morph_frames/f%d.png -vf "split[a][b];[a]palettegen=max_colors=96[p];[b][p]paletteuse=dither=none" images/harmonic_morph_anim.gif;
-assert(r3.code == 0);
+require(r3.code == 0, "ffmpeg failed");
 print("wrote images/harmonic_morph_anim.gif and audio/harmonic_morph_anim.wav");

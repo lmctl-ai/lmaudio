@@ -13,7 +13,7 @@ mkdir("images");
 mkdir("audio");
 mkdir("build/rendered");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/karplus_strong_tuning.dslb";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
 let sr = 22050;
 
 # 1. Tuning sweep, E3 (MIDI 52) to E6 (MIDI 88).
@@ -50,13 +50,12 @@ let tune = audio.sequence("A4:1 C5:2 D5:1 E5:1.5 F5:0.5 E5:1 D5:2 B4:1 G4:2", 18
 tune.normalize(0.9).fade(0.0, 0.3).save_wav("audio/karplus_strong_tuning.wav", 16);
 end _lmcode_
 
-r1 = system ${"lmaudio"} --lmcode build/karplus_strong_tuning.dslb;
-for (l in lines(r1.stdout)) { if (!starts_with(l, "{")) { println(l); } }
-if (r1.code != 0) { println(r1.stderr); }
-assert(r1.code == 0);
+r1 = run_lmcode(a);
+if (!r1.ok) { println(json_stringify(r1)); }
+require(r1.ok, "host failed");
 
 # Signal-flow diagram of the loop.
-d = _lmcode_ cli="lmdraw" install="github:lmctl-ai/lmdraw@latest" out="build/karplus_strong_tuning-diagram.dslb";
+d = _lmcode_ cli="lmdraw" install="github:lmctl-ai/lmdraw@latest";
 scene.canvas(470, 250, "#ffffff");
 scene.text(235.0, 24.0, 14.0, "Karplus-Strong loop: N + ½ + d samples = sr / f", "#0f172a").set_attr("text-anchor", "middle");
 # Noise burst source
@@ -97,11 +96,11 @@ scene.text(235.0, 236.0, 11.0, "g sets the 60 dB decay time of the fundamental",
 scene.render_png("build/rendered/ks_loop.png", 470, 250, 2);
 end _lmcode_
 
-r2 = system ${"lmdraw"} --lmcode build/karplus_strong_tuning-diagram.dslb;
-if (r2.code != 0) { println(r2.stderr); }
-assert(r2.code == 0);
+r2 = run_lmcode(d);
+if (!r2.ok) { println(json_stringify(r2)); }
+require(r2.ok, "host failed");
 
-p = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/karplus_strong_tuning-plot.dslb";
+p = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
 plot.png("images/karplus_strong_tuning.png", 980, 720);
 plot.cmd("set encoding utf8");
 plot.cmd("set datafile separator ','");
@@ -140,7 +139,7 @@ plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
 
-r3 = system ${"lmplot"} --lmcode build/karplus_strong_tuning-plot.dslb;
-if (r3.code != 0) { println(r3.stderr); }
-assert(r3.code == 0);
+r3 = run_lmcode(p);
+if (!r3.ok) { println(json_stringify(r3)); }
+require(r3.ok, "host failed");
 println("wrote images/karplus_strong_tuning.png and audio/karplus_strong_tuning.wav");

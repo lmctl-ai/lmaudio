@@ -276,7 +276,7 @@ lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/c
 
 ## Use it
 
-The current release lane publishes `lmaudio-linux-x64` and `lmaudio-linux-arm64`, built against dynamic glibc >= 2.35 with all third-party libraries and C++ runtimes linked statically. Earlier releases may also contain macOS and Windows assets; those platforms are not produced by the current lane. Download from the [releases](https://github.com/lmctl-ai/lmaudio/releases), or let `lmscript` fetch it: a program is a `_dsl_` block compiled by
+The current release lane publishes `lmaudio-linux-x64` and `lmaudio-linux-arm64`, built against dynamic glibc >= 2.35 with all third-party libraries and C++ runtimes linked statically. Earlier releases may also contain macOS and Windows assets; those platforms are not produced by the current lane. Download from the [releases](https://github.com/lmctl-ai/lmaudio/releases), or let `lmscript` fetch it: a program is a `_lmcode_` block compiled by
 `lmscript` (`npm i -g @lmctl-ai/lmctl`), which finds `lmaudio` on `PATH` or downloads the release
 on first use (`install=`).
 
@@ -291,10 +291,9 @@ audio.assert_close(out.lufs(), -16.0, 0.01);
 audio.print("pitch of the first note: " + str(arp.slice(0.0, 0.25).pitch()) + " Hz");
 out.save_wav("audio/hello.wav", 16);
 end _lmcode_
-savedsl(a, "private implementation detail");
-r = system ${dsl_cli(a)} --lmcode private implementation detail;   # run it with the binary it was compiled against
+r = run_lmcode(a);
 for (l in lines(r.stdout)) { if (!starts_with(l, "{")) { println(l); } }
-assert(r.code == 0);
+assert(r.ok);
 ```
 
 ```sh
@@ -305,7 +304,7 @@ lmctl autorun https://raw.githubusercontent.com/lmctl-ai/lmaudio/main/examples/d
 The script keeps loops, numbers and strings; `lmaudio` keeps the audio. Results come back as
 numbers (`buf.pitch()`, `buf.lufs()`, `buf.rt60()`), as CSV for a plotting host
 (`buf.save_csv`, `spectrum.save_csv`, `spectrogram.save_csv`, `buf.pitch_track_csv`,
-`audio.save_text`) and as WAV files. Several `_dsl_` blocks in one script combine hosts: every
+`audio.save_text`) and as WAV files. Several `_lmcode_` blocks in one script combine hosts: every
 example above renders its figure with `lmplot` and most draw a diagram with `lmdraw`.
 
 ## What is in the box (`context audio: Audio`)
@@ -376,7 +375,7 @@ A program may use at most 4096 MiB in total (buffers, spectra, FFT scratch, and 
 of the Soundpipe modules); beyond that it stops with a run error (exit 3) naming the limit instead
 of exhausting the machine. Set `LMAUDIO_MAX_MEMORY_MB` to change it (a positive whole number;
 anything else is a usage error, exit 2, on every command). Errors print one JSON line on stdout
-and one human-readable line on stderr. `lmaudio --dry-run --lmcode prog.dslb` runs a program
+and one human-readable line on stderr. `lmaudio --dry-run --lmcode prog.lmcode` runs a program
 without writing any file and lists what it would write.
 
 ```

@@ -4,7 +4,7 @@ mkdir("build");
 mkdir("audio");
 mkdir("images");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/synth_lead_melody.dslb";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
 let sr = 22050;
 let bpm = 128.0;
 
@@ -41,10 +41,10 @@ let sg = mix_mono.spectrogram(512, 128, "hann", 4200.0);
 sg.save_csv("build/synth_melody_sgram.csv", -78.0);
 end _lmcode_
 
-r1 = system ${"lmaudio"} --lmcode build/synth_lead_melody.dslb;
-assert(r1.code == 0);
+r1 = run_lmcode(a);
+require(r1.ok, "host failed");
 
-draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/synth_lead_melody-draw.dslb";
+draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
 plot.png("images/synth_lead_melody.png", 980, 640);
 plot.cmd("set datafile separator ','");
 plot.cmd("set multiplot layout 2,1 title 'Synth Melody, Arpeggiated Bassline and Chords from Note Strings (128 BPM, Am-G-F-E7)' font ',13'");
@@ -64,6 +64,6 @@ plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
 
-r2 = system ${"lmplot"} --lmcode build/synth_lead_melody-draw.dslb;
-assert(r2.code == 0);
+r2 = run_lmcode(draw);
+require(r2.ok, "host failed");
 print("wrote images/synth_lead_melody.png and audio/synth_lead_melody.wav");

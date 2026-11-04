@@ -10,7 +10,7 @@ mkdir("build");
 mkdir("images");
 mkdir("audio");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/loudness_normalization_lufs.dslb";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
 let sr = 22050;
 let dur = 0.9;
 
@@ -77,12 +77,11 @@ after.save_csv("build/lufs_after.csv", 3000);
 after.save_wav("audio/loudness_normalization_lufs.wav", 16);
 end _lmcode_
 
-r1 = system ${"lmaudio"} --lmcode build/loudness_normalization_lufs.dslb;
-for (l in lines(r1.stdout)) { if (!starts_with(l, "{")) { println(l); } }
-if (r1.code != 0) { println(r1.stderr); }
-assert(r1.code == 0);
+r1 = run_lmcode(a);
+if (!r1.ok) { println(json_stringify(r1)); }
+require(r1.ok, "host failed");
 
-p = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/loudness_normalization_lufs-plot.dslb";
+p = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
 plot.png("images/loudness_normalization_lufs.png", 980, 700);
 plot.cmd("set encoding utf8");
 plot.cmd("set datafile separator ','");
@@ -117,7 +116,7 @@ plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
 
-r2 = system ${"lmplot"} --lmcode build/loudness_normalization_lufs-plot.dslb;
-if (r2.code != 0) { println(r2.stderr); }
-assert(r2.code == 0);
+r2 = run_lmcode(p);
+if (!r2.ok) { println(json_stringify(r2)); }
+require(r2.ok, "host failed");
 println("wrote images/loudness_normalization_lufs.png and audio/loudness_normalization_lufs.wav");

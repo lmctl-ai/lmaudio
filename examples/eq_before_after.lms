@@ -5,7 +5,7 @@ mkdir("build");
 mkdir("audio");
 mkdir("images");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/eq_before_after.dslb";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
 let sr = 22050;
 
 # Construct an unmastered groove + chord loop plagued by 55 Hz hum, 220 Hz mud, and harsh 2400 Hz metallic ringing
@@ -46,10 +46,10 @@ let compare_wav = raw_mix.slice(0.0, 1.55).fade(0.01, 0.03).pad(0.0, 0.08).conca
 compare_wav.save_wav("audio/eq_before_after.wav", 16);
 end _lmcode_
 
-r1 = system ${"lmaudio"} --lmcode build/eq_before_after.dslb;
-assert(r1.code == 0);
+r1 = run_lmcode(a);
+require(r1.ok, "host failed");
 
-draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/eq_before_after-draw.dslb";
+draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
 plot.png("images/eq_before_after.png", 940, 620);
 plot.cmd("set datafile separator ','");
 plot.cmd("set multiplot layout 2,2 title '4-Band Parametric Mastering EQ: Before vs After Spectrograms and Spectrum' font ',13'");
@@ -78,6 +78,6 @@ plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
 
-r2 = system ${"lmplot"} --lmcode build/eq_before_after-draw.dslb;
-assert(r2.code == 0);
+r2 = run_lmcode(draw);
+require(r2.ok, "host failed");
 print("wrote images/eq_before_after.png and audio/eq_before_after.wav");

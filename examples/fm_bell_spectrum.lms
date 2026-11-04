@@ -4,7 +4,7 @@ mkdir("build");
 mkdir("audio");
 mkdir("images");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/fm_bell_spectrum.dslb";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
 let sr = 22050;
 
 # Carrier fc = 1000 Hz, Modulator fm = 300 Hz (ratio = 0.3) -> sidebands at 1000 +/- k*300 Hz
@@ -38,11 +38,11 @@ let showcase = bell1.mix(bell2, 0.85, 0.4).mix(brass, 0.9, 1.5).reverb(0.80, 650
 showcase.save_wav("audio/fm_bell_spectrum.wav", 16);
 end _lmcode_
 
-r1 = system ${"lmaudio"} --lmcode build/fm_bell_spectrum.dslb;
-if (r1.code != 0) { println(r1.stderr); }
-assert(r1.code == 0);
+r1 = run_lmcode(a);
+if (!r1.ok) { println(json_stringify(r1)); }
+require(r1.ok, "host failed");
 
-draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/fm_bell_spectrum-draw.dslb";
+draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
 plot.png("images/fm_bell_spectrum.png", 980, 660);
 plot.cmd("set datafile separator ','; set encoding utf8; set samples 10");
 plot.cmd("set multiplot layout 2,2 title 'Chowning 2-Operator FM Synthesis: Bessel J_k(beta) Sideband Evolution (fc=1000 Hz, fm=300 Hz)' font ',13'");
@@ -68,6 +68,6 @@ plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
 
-r2 = system ${"lmplot"} --lmcode build/fm_bell_spectrum-draw.dslb;
-assert(r2.code == 0);
+r2 = run_lmcode(draw);
+require(r2.ok, "host failed");
 print("wrote images/fm_bell_spectrum.png and audio/fm_bell_spectrum.wav");

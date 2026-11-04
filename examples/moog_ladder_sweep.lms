@@ -4,7 +4,7 @@ mkdir("build");
 mkdir("audio");
 mkdir("images");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/moog_ladder_sweep.dslb";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
 let sr = 22050;
 let dur = 2.8;
 
@@ -32,10 +32,10 @@ raw_bass.slice(0.0, 0.5).ladder(1000.0, 0.72, 1.2, "lp24").spectrum("hann", 4096
 raw_bass.slice(0.0, 0.5).ladder(2800.0, 0.72, 1.2, "lp24").spectrum("hann", 4096).save_csv("build/moog_fc2800.csv", 4500.0);
 end _lmcode_
 
-r1 = system ${"lmaudio"} --lmcode build/moog_ladder_sweep.dslb;
-assert(r1.code == 0);
+r1 = run_lmcode(a);
+require(r1.ok, "host failed");
 
-draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/moog_ladder_sweep-draw.dslb";
+draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
 plot.png("images/moog_ladder_sweep.png", 980, 660);
 plot.cmd("set datafile separator ','");
 plot.cmd("set multiplot layout 2,1 title 'Huovilainen 24 dB/oct Moog Ladder Filter Sweep (fc = 140 Hz -> 4200 Hz, Q = 0.72)' font ',13'");
@@ -55,6 +55,6 @@ plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
 
-r2 = system ${"lmplot"} --lmcode build/moog_ladder_sweep-draw.dslb;
-assert(r2.code == 0);
+r2 = run_lmcode(draw);
+require(r2.ok, "host failed");
 print("wrote images/moog_ladder_sweep.png and audio/moog_ladder_sweep.wav");

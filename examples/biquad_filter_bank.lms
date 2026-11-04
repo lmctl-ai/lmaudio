@@ -4,7 +4,7 @@ mkdir("build");
 mkdir("audio");
 mkdir("images");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/biquad_filter_bank.dslb";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
 let sr = 44100;
 
 let bq_lp = audio.biquad_design("lowpass", 800.0, 0.70710678, sr);
@@ -41,10 +41,10 @@ let out_wav = s1.concat(s2).concat(s3).concat(s4).normalize(0.92);
 out_wav.save_wav("audio/biquad_filter_bank.wav", 16);
 end _lmcode_
 
-r1 = system ${"lmaudio"} --lmcode build/biquad_filter_bank.dslb;
-assert(r1.code == 0);
+r1 = run_lmcode(a);
+require(r1.ok, "host failed");
 
-draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/biquad_filter_bank-draw.dslb";
+draw = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
 plot.png("images/biquad_filter_bank.png", 980, 660);
 plot.cmd("set datafile separator ','");
 plot.cmd("set multiplot layout 2,1 title 'RBJ Audio-EQ-Cookbook Biquad Filter Bank: Exact Analytical Bode Response (20 Hz - 20 kHz)' font ',13'");
@@ -63,6 +63,6 @@ plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
 
-r2 = system ${"lmplot"} --lmcode build/biquad_filter_bank-draw.dslb;
-assert(r2.code == 0);
+r2 = run_lmcode(draw);
+require(r2.ok, "host failed");
 print("wrote images/biquad_filter_bank.png and audio/biquad_filter_bank.wav");

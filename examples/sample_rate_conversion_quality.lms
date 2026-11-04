@@ -13,7 +13,7 @@ mkdir("build");
 mkdir("images");
 mkdir("audio");
 
-a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest" out="build/sample_rate_conversion_quality.dslb";
+a = _lmcode_ cli="lmaudio" install="github:lmctl-ai/lmaudio@latest";
 let sr = 44100;
 let sweep = audio.chirp(50.0, 20000.0, 2.0, 0.5, "log", sr);
 let clean = sweep.resample(16000);
@@ -48,12 +48,11 @@ audio.assert_close(max(a11n, -6.0), a11n, 0.0);
 naive.resample(22050).fade(0.01, 0.05).concat(audio.silence(0.3, 22050)).concat(clean.resample(22050).fade(0.01, 0.05)).normalize(0.7).save_wav("audio/sample_rate_conversion_quality.wav", 16);
 end _lmcode_
 
-r1 = system ${"lmaudio"} --lmcode build/sample_rate_conversion_quality.dslb;
-for (l in lines(r1.stdout)) { if (!starts_with(l, "{")) { println(l); } }
-if (r1.code != 0) { println(r1.stderr); }
-assert(r1.code == 0);
+r1 = run_lmcode(a);
+if (!r1.ok) { println(json_stringify(r1)); }
+require(r1.ok, "host failed");
 
-p = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest" out="build/sample_rate_conversion_quality-plot.dslb";
+p = _lmcode_ cli="lmplot" install="github:lmctl-ai/lmplot@latest";
 plot.png("images/sample_rate_conversion_quality.png", 980, 700);
 plot.cmd("set encoding utf8");
 plot.cmd("set datafile separator ','");
@@ -88,7 +87,7 @@ plot.cmd("unset multiplot");
 plot.close();
 end _lmcode_
 
-r2 = system ${"lmplot"} --lmcode build/sample_rate_conversion_quality-plot.dslb;
-if (r2.code != 0) { println(r2.stderr); }
-assert(r2.code == 0);
+r2 = run_lmcode(p);
+if (!r2.ok) { println(json_stringify(r2)); }
+require(r2.ok, "host failed");
 println("wrote images/sample_rate_conversion_quality.png and audio/sample_rate_conversion_quality.wav");
