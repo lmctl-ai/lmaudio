@@ -8,6 +8,8 @@
 [![Latest release](https://img.shields.io/github/v/release/lmctl-ai/lmaudio?label=release)](https://github.com/lmctl-ai/lmaudio/releases)
 [![Examples: MIT](https://img.shields.io/badge/examples-MIT-blue.svg)](LICENSE-examples)
 
+**Documentation:** [lmctl.com/tools/lmaudio](https://www.lmctl.com/tools/lmaudio/) · [skill](https://www.lmctl.com/tools/lmaudio/skill.html) · [guide](https://www.lmctl.com/tools/lmaudio/guide.html) · [reference](https://www.lmctl.com/tools/lmaudio/reference.html)
+
 | Three roads to one note: subtractive, additive, FM | Karplus-Strong string: an allpass fixes the tuning | A drum machine from text |
 | --- | --- | --- |
 | <a href="#synthesis_methods_compared"><img src="docs/images/synthesis_methods_compared.png" width="290" alt="synthesis_methods_compared"></a> | <a href="#karplus_strong_tuning"><img src="docs/images/karplus_strong_tuning.png" width="290" alt="karplus_strong_tuning"></a> | <a href="#drum_machine_pattern"><img src="docs/images/drum_machine_pattern.png" width="290" alt="drum_machine_pattern"></a> |
